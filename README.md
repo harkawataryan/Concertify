@@ -1,8 +1,6 @@
 # Concertify-ish (kinda janky) — Spotify × Ticketmaster
 Front-end in React (Vite) and back-end in Node/Express. Log in with Spotify, fetch your top 20 artists, show upcoming concerts (Ticketmaster), and recommend a few new artists based on your listening + who’s touring.
 
-> code is intentionally a little janky but readable.
-
 ## Requirements
 - Node 18+
 - Spotify Developer app (Client ID/Secret)
