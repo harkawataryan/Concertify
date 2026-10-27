@@ -26,6 +26,7 @@ export function MapPage() {
     <main className="page">
       <div className="page-head">
         <div>
+          <span className="eyebrow">Nearby</span>
           <h1>Map</h1>
           <p>{recs.length ? `${recs.length} recommended shows within ${data.radiusMiles} mi. Larger, brighter markers are better matches.` : `Within ${location.radius} mi of ${location.name}.`}</p>
         </div>

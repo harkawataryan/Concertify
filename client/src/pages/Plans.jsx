@@ -42,6 +42,7 @@ export function Plans() {
     <main className="page">
       <div className="page-head">
         <div>
+          <span className="eyebrow">Go together</span>
           <h1>Plans</h1>
           <p>Rank shows for a group. Share a link; everyone who opens it joins with their own taste.</p>
         </div>

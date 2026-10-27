@@ -44,6 +44,7 @@ export function PlanDetail() {
     <main className="page">
       <div className="page-head">
         <div>
+          <span className="eyebrow">Group plan</span>
           <h1>{p.name}</h1>
           <p>{p.members.length === 1 ? 'Only you so far. Share the link to add people.' : `Ranked for ${p.members.length} people: average match, with a penalty when someone would hate it.`}</p>
         </div>
