@@ -41,6 +41,7 @@ export function loadConfig(env = process.env) {
       maxConcurrency: int('TM_CONCURRENCY', 3)
     },
     redisUrl: env.REDIS_URL || null,
+    alertIntervalMs: int('ALERT_INTERVAL_MINUTES', 360) * 60 * 1000,
     cache: {
       maxEntries: int('CACHE_MAX_ENTRIES', 5000)
     },
