@@ -1,55 +1,46 @@
 import express from 'express';
-import axios from 'axios';
-import qs from 'qs';
+import crypto from 'node:crypto';
+import { log } from '../lib/logger.js';
 
-const router = express.Router();
+const SCOPES = ['user-top-read'];
 
-const scopes = [
-  'user-top-read'
-].join(' ');
+export function authRouter({ spotify, frontendUrl }) {
+  const router = express.Router();
 
-router.get('/login', (req, res) => {
-  // yes, we’re building the URL by hand; it’s fine
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: process.env.SPOTIFY_CLIENT_ID,
-    scope: scopes,
-    redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
-    state: Math.random().toString(36).slice(2)
+  router.get('/login', (req, res) => {
+    // Random, unguessable state is what makes the OAuth flow CSRF-safe.
+    const state = crypto.randomBytes(16).toString('hex');
+    req.session.oauthState = state;
+    res.redirect(spotify.authorizeUrl({ state, scopes: SCOPES }));
   });
-  req.session.state = params.get('state');
-  res.redirect('https://accounts.spotify.com/authorize?' + params.toString());
-});
 
-router.get('/callback', async (req, res) => {
-  const { code, state } = req.query;
-  if (!code || !state || state !== req.session.state) {
-    return res.status(400).send('weird auth state');
-  }
-  try {
-    const tokenRes = await axios.post('https://accounts.spotify.com/api/token',
-      qs.stringify({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
-        client_id: process.env.SPOTIFY_CLIENT_ID,
-        client_secret: process.env.SPOTIFY_CLIENT_SECRET
-      }), {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-      });
-    req.session.access_token = tokenRes.data.access_token;
-    req.session.refresh_token = tokenRes.data.refresh_token;
-    // shrug, just bounce to frontend
-    res.redirect((process.env.FRONTEND_URL || 'http://localhost:5173') + '/#ok');
-  } catch (e) {
-    console.error('token exchange failed', e.response?.data || e.message);
-    res.status(500).send('auth borked');
-  }
-});
+  router.get('/callback', async (req, res, next) => {
+    const { code, state, error } = req.query;
+    if (error) return res.redirect(`${frontendUrl}/?auth_error=${encodeURIComponent(error)}`);
+    if (!code || !state || state !== req.session?.oauthState) {
+      return res.status(400).json({ error: 'invalid_oauth_state' });
+    }
+    try {
+      const tokens = await spotify.exchangeCode(code);
+      const profile = await spotify.getProfile(tokens.accessToken);
+      req.session = {
+        userId: profile.id,
+        displayName: profile.displayName,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: tokens.expiresAt
+      };
+      log.info('user logged in', { userId: profile.id });
+      return res.redirect(frontendUrl);
+    } catch (err) {
+      return next(err);
+    }
+  });
 
-router.post('/logout', (req, res) => {
-  req.session = null;
-  res.json({ ok: true });
-});
+  router.post('/logout', (req, res) => {
+    req.session = null;
+    res.json({ ok: true });
+  });
 
-export default router;
+  return router;
+}
