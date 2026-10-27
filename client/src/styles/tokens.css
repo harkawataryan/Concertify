@@ -10,6 +10,8 @@
   --accent: #f2b544;
   --accent-ink: #1a1203;
   --accent-soft: rgba(242, 181, 68, 0.14);
+  --accent-glow: rgba(242, 181, 68, 0.35);
+  --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.35);
   --negative: #e5484d;
   --negative-soft: rgba(229, 72, 77, 0.14);
   --positive: #3dd68c;
@@ -54,6 +56,8 @@
     --accent: #c98a12;
     --accent-ink: #ffffff;
     --accent-soft: rgba(201, 138, 18, 0.12);
+    --accent-glow: rgba(201, 138, 18, 0.28);
+    --shadow-card: 0 12px 32px rgba(21, 23, 28, 0.12);
     --overlay: rgba(21, 23, 28, 0.45);
     --skeleton: #e8e8e4;
     --skeleton-shine: #f3f3f0;

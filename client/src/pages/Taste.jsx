@@ -31,6 +31,7 @@ export function Taste() {
     <main className="page">
       <div className="page-head">
         <div>
+          <span className="eyebrow">Your profile</span>
           <h1>Your taste</h1>
           <p>What the ranker thinks you like. Recent listening counts more than old favorites.</p>
         </div>
