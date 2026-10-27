@@ -1,12 +1,10 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import grpc from '@grpc/grpc-js';
 import protoLoader from '@grpc/proto-loader';
 import { fitWeights, FEATURES } from './learning.js';
 import { WEIGHTS } from './recommender.js';
 import { log } from '../lib/logger.js';
 
-const PROTO_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../proto/concertify.proto');
+import { PROTO_PATH } from '../lib/proto.js';
 const DEADLINE_MS = 2000;
 
 function loadTrainer() {
