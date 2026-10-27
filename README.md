@@ -29,7 +29,7 @@ The recommender is a two-stage, content-based ranker in [`server/src/services/re
 | proximity | 0.08 | `exp(-miles / 40)` from the user's location |
 | soon | 0.07 | `exp(-days / 120)` until the show |
 
-Explicit feedback adjusts the profile (a thumbs-down removes an artist and suppresses its genres; a thumbs-up boosts it). Multiple dates of the same artist collapse into one card. Finally a maximal-marginal-relevance pass trades a little affinity for genre diversity so the top of the list isn't ten near-identical shows. Every result carries its component scores and plain-English reasons.
+Explicit feedback does two things: it adjusts the profile (a thumbs-down removes an artist and suppresses its genres; a thumbs-up boosts it), and it trains the weights themselves. Every rating on a scored show is a labeled example of the four component scores; once a user has five or more, a logistic regression ([`learning.js`](server/src/services/learning.js)), L2-regularized toward the defaults above, replaces the fixed weights with that user's own. Multiple dates of the same artist collapse into one card. Finally a maximal-marginal-relevance pass trades a little affinity for genre diversity so the top of the list isn't ten near-identical shows. Every result carries its component scores and plain-English reasons.
 
 ## Infrastructure
 

@@ -18,6 +18,7 @@ export function defaultUser(id) {
     location: null, // {name, lat, lng, radius}
     watchlist: {}, // artistId -> Artist & {addedAt}
     feedback: { artists: {}, genres: {} },
+    examples: [], // {features, label, at} from ratings, for learned ranking weights
     alerts: [], // newest first, capped
     alertedEventIds: {}, // eventId -> ISO date, so a show is only alerted once
     plans: [] // plan codes
