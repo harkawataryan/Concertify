@@ -17,7 +17,7 @@ WORKDIR /app
 COPY server/package*.json ./
 RUN npm ci --omit=dev
 
-FROM golang:1.24-bookworm AS ranker
+FROM golang:1.26-bookworm AS ranker
 WORKDIR /src
 COPY ranker/go.mod ranker/go.sum ./
 RUN go mod download
