@@ -53,6 +53,7 @@ export function ForYou() {
     <main className="page">
       <div className="page-head">
         <div>
+          <span className="eyebrow">Ranked for {location.name}</span>
           <h1>For you</h1>
           <p>
             {data ? <>Scanned {data.meta.scanned} shows within {data.radiusMiles} mi against {data.profile.artistCount} artists you listen to.{data.profile.pending > 0 && ' Still learning your taste; this list will fill in.'}</> : <>Shows within {location.radius} mi of {location.name}.</>}

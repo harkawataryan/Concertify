@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { Icon } from './Icon.jsx';
+import { Logo } from './Logo.jsx';
 import { PRESET_CITIES, RADII } from '../hooks/useLocation.js';
 import { initials } from '../lib/format.js';
 
@@ -82,7 +83,7 @@ export function TopBar({ user, loc, unreadAlerts, onLogout }) {
     <>
       <header className="topbar">
         <div className="topbar-inner">
-          <Link to="/" className="wordmark">Concertify</Link>
+          <Link to="/" className="wordmark"><Logo /> Concertify</Link>
           {user && (
             <nav className="nav" aria-label="Primary">
               {NAV.map((n) => (
