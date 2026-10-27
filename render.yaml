@@ -1,0 +1,21 @@
+# Render blueprint: one web service running the Dockerfile at the repo root.
+# RENDER_EXTERNAL_URL is injected by Render and used for the OAuth callback
+# and frontend URL, so only the three API credentials need to be entered.
+services:
+  - type: web
+    name: concertify
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      - key: TICKETMASTER_API_KEY
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production

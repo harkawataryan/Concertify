@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-export const SERVER = import.meta.env.VITE_SERVER_URL || 'http://127.0.0.1:8088';
+// In development the API runs on its own port; in production the server
+// serves this bundle itself, so requests are same-origin.
+export const SERVER = import.meta.env.VITE_SERVER_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:8088' : '');
 
 const http = axios.create({ baseURL: SERVER, withCredentials: true, timeout: 30_000 });
 

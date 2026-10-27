@@ -5,7 +5,7 @@ services:
       - "6379:6379"
 
   server:
-    build: ./server
+    build: .
     env_file: ./server/.env
     environment:
       REDIS_URL: redis://redis:6379

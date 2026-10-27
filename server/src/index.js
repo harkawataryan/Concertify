@@ -1,4 +1,6 @@
 import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
 import cors from 'cors';
 import cookieSession from 'cookie-session';
 import rateLimit from 'express-rate-limit';
@@ -54,6 +56,14 @@ export async function createApp(config) {
     keyGenerator: (req) => req.session?.userId || req.ip
   }));
   app.use('/api', apiRouter({ spotify, ticketmaster, cache }));
+
+  // In production the built client is served from the same origin as the
+  // API, so the session cookie is first-party and no CORS is involved.
+  if (config.clientDist && fs.existsSync(path.join(config.clientDist, 'index.html'))) {
+    app.use(express.static(config.clientDist, { maxAge: '1h', index: false }));
+    app.get(/^(?!\/(api|auth|assets)\/).*/, (_req, res) => res.sendFile(path.join(config.clientDist, 'index.html')));
+    log.info('serving client', { dir: config.clientDist });
+  }
 
   app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
 
