@@ -40,6 +40,7 @@ export function Watchlist() {
     <main className="page">
       <div className="page-head">
         <div>
+          <span className="eyebrow">Saved artists and alerts</span>
           <h1>Watchlist</h1>
           <p>{loc.location ? `Alerts check for new shows within ${loc.location.radius} mi of ${loc.location.name} every 6 hours.` : 'Set a location to receive alerts.'}</p>
         </div>
