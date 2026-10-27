@@ -25,6 +25,7 @@ export const WEIGHTS = {
 };
 
 const STAGE1_KEEP = 60;
+const SCORE_CONCURRENCY = 6;
 const MAX_ATTRACTIONS_PER_EVENT = 2;
 const DISTANCE_SCALE_MI = 40; // proximity score halves every ~28 miles
 const DATE_SCALE_DAYS = 120;
@@ -49,11 +50,9 @@ export async function recommendEvents({
   // and never worth dropping to save a lookup.
   const candidates = stage1.filter((c, i) => c.prelim.direct > 0 || i < STAGE1_KEEP);
 
-  const scored = [];
-  for (const c of candidates) {
-    const result = await scoreCandidate(c, { profile, origin, resolveArtist, now, likedArtists });
-    if (result) scored.push(result);
-  }
+  const scored = (await mapLimit(candidates, SCORE_CONCURRENCY, (c) => scoreCandidate(c, {
+    profile, origin, resolveArtist, now, likedArtists
+  }))).filter(Boolean);
 
   const grouped = groupByArtist(scored);
   const ranked = rerankForDiversity(grouped, { limit, diversity });
@@ -61,7 +60,12 @@ export async function recommendEvents({
     .filter((r) => r.components.direct === 0 && r.components.genre >= 0.25 && r.artist)
     .sort((a, b) => b.affinity - a.affinity)
     .slice(0, 10)
-    .map((r) => ({ artist: r.artist, affinity: r.affinity, reasons: r.reasons, event: r.event }));
+    .map((r) => ({
+      artist: { ...r.artist, image: r.artist.image || r.event.image },
+      affinity: r.affinity,
+      reasons: r.reasons,
+      event: r.event
+    }));
 
   return {
     recommendations: ranked,
@@ -70,11 +74,32 @@ export async function recommendEvents({
   };
 }
 
+/** Ticketmaster genre labels from the event and its performers, deduplicated. */
+function ticketmasterGenres(event) {
+  const out = new Set(event.genres);
+  for (const a of event.attractions) for (const g of a.genres || []) out.add(g);
+  return [...out];
+}
+
 function preliminaryScore(event, profile) {
   const direct = directFromNames(event, profile);
-  const tm = genreVectors(event.genres.map((g) => [g, 1]));
+  const tm = genreVectors(ticketmasterGenres(event).map((g) => [g, 1]));
   const genre = cosine(tm.tokens, profile.genres.tokens);
   return { direct, genre, score: 0.6 * direct + 0.4 * genre };
+}
+
+async function mapLimit(items, concurrency, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      results[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
 }
 
 function directFromNames(event, profile) {
@@ -109,11 +134,13 @@ async function scoreCandidate({ event }, { profile, origin, resolveArtist, now, 
   // Fall back to the name match when Spotify search couldn't resolve the performer.
   if (direct === 0) direct = directFromNames(event, profile);
 
-  // Candidate genre vector: Spotify genres at full weight, Ticketmaster's
-  // coarser labels at half so they inform but don't dominate.
+  // Candidate genre vector: Spotify genres at full weight when present,
+  // Ticketmaster's labels (event and performer) at half so they inform but
+  // don't dominate. In practice Spotify rarely returns genres anymore, so
+  // the Ticketmaster labels usually carry the whole signal.
   const weighted = [];
-  for (const a of resolved) for (const g of a.genres) weighted.push([g, 1]);
-  for (const g of event.genres) weighted.push([g, 0.5]);
+  for (const a of resolved) for (const g of a.genres || []) weighted.push([g, 1]);
+  for (const g of ticketmasterGenres(event)) weighted.push([g, 0.5]);
   const candidateGenres = genreVectors(weighted);
   const genre = genreSimilarity(candidateGenres, profile.genres);
 

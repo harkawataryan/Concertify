@@ -11,8 +11,11 @@ export const TIME_RANGES = ['short_term', 'medium_term', 'long_term'];
  * calls refreshAccessToken() before a request if the session token is about
  * to expire; this module itself is stateless.
  */
-export function createSpotifyClient({ clientId, clientSecret, redirectUri, withCache }) {
+export function createSpotifyClient({ clientId, clientSecret, redirectUri, withCache, limit = (fn) => fn() }) {
   const basicAuth = 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const apiGet = (url, accessToken, params) => limit(() => requestWithRetry({
+    url, params, headers: { Authorization: `Bearer ${accessToken}` }
+  }, { upstream: 'spotify' }));
 
   async function tokenRequest(form) {
     const res = await requestWithRetry({
@@ -79,10 +82,7 @@ export function createSpotifyClient({ clientId, clientSecret, redirectUri, withC
 
     async getArtist(accessToken, id) {
       return withCache(`spotify:artist:${id}`, 24 * 3600, async () => {
-        const res = await requestWithRetry({
-          url: `${API}/artists/${id}`,
-          headers: { Authorization: `Bearer ${accessToken}` }
-        }, { upstream: 'spotify' });
+        const res = await apiGet(`${API}/artists/${id}`, accessToken);
         return slimArtist(res.data);
       });
     },
@@ -96,11 +96,9 @@ export function createSpotifyClient({ clientId, clientSecret, redirectUri, withC
       const key = normalizeName(name);
       if (!key) return null;
       const result = await withCache(`spotify:search:${key}`, 24 * 3600, async () => {
-        const res = await requestWithRetry({
-          url: `${API}/search`,
-          headers: { Authorization: `Bearer ${accessToken}` },
-          params: { q: `artist:"${name.replace(/"/g, '')}"`, type: 'artist', limit: 5 }
-        }, { upstream: 'spotify' });
+        const res = await apiGet(`${API}/search`, accessToken, {
+          q: `artist:"${name.replace(/"/g, '')}"`, type: 'artist', limit: 5
+        });
         const items = (res.data.artists?.items || []).map(slimArtist);
         const hit = bestMatch(name, items, { threshold: 0.85, key: (a) => a.name });
         // Cache misses too (as null), otherwise every unknown local act costs a search per load.

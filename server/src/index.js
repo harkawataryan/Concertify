@@ -16,7 +16,12 @@ export async function createApp(config) {
   const cache = await createCache({ redisUrl: config.redisUrl, maxEntries: config.cache.maxEntries });
   const withCache = cached(cache);
 
-  const spotify = createSpotifyClient({ ...config.spotify, withCache });
+  // Spotify publishes no hard quota but 429s bursts; keep lookups polite.
+  const spotify = createSpotifyClient({
+    ...config.spotify,
+    withCache,
+    limit: limited({ ratePerSecond: 8, maxConcurrency: 4 })
+  });
   const ticketmaster = createTicketmasterClient({
     apiKey: config.ticketmaster.apiKey,
     withCache,

@@ -2,6 +2,7 @@ import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { parseLatLng, haversineMiles } from '../lib/geo.js';
 import { buildTasteProfile } from '../services/taste.js';
+import { enrichGenres } from '../services/genres.js';
 import { recommendEvents } from '../services/recommender.js';
 import { TIME_RANGES } from '../services/spotify.js';
 
@@ -64,7 +65,8 @@ export function apiRouter({ spotify, ticketmaster, cache }) {
       const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
 
       const [topByRange, feedback, events] = await Promise.all([
-        spotify.getTopArtistsAllRanges(req.user.accessToken, { userId: req.user.id }),
+        spotify.getTopArtistsAllRanges(req.user.accessToken, { userId: req.user.id })
+          .then((ranges) => enrichGenres(ranges, ticketmaster)),
         loadFeedback(req.user.id),
         ticketmaster.eventsNear(origin, { radiusMiles })
       ]);
@@ -72,8 +74,19 @@ export function apiRouter({ spotify, ticketmaster, cache }) {
       const profile = buildTasteProfile(topByRange, feedback);
       const likedArtists = new Set(Object.entries(feedback.artists).filter(([, s]) => s > 0).map(([id]) => id));
 
+      // Most Ticketmaster performers already carry their Spotify id, and the
+      // profile is keyed by id, so no Spotify call is needed for those. Only
+      // unlinked performers cost a (cached) search.
       const resolveArtist = async (attraction) => {
-        if (attraction.spotifyId) return spotify.getArtist(req.user.accessToken, attraction.spotifyId).catch(() => null);
+        if (attraction.spotifyId) {
+          return {
+            id: attraction.spotifyId,
+            name: attraction.name,
+            genres: attraction.genres,
+            image: null,
+            url: `https://open.spotify.com/artist/${attraction.spotifyId}`
+          };
+        }
         return spotify.findArtistByName(req.user.accessToken, attraction.name).catch(() => null);
       };
 
