@@ -5,8 +5,9 @@ All `/api` routes require the session cookie set by `/auth/login`. Errors are JS
 ```ts
 type Event = {
   id: string; name: string; url: string;
-  date: string | null;        // "2026-11-14" (local)
-  dateTime: string | null;    // ISO, UTC
+  date: string | null;        // "2026-11-14" (venue-local)
+  time: string | null;        // "20:00:00" venue-local wall clock; display this, not dateTime
+  dateTime: string | null;    // ISO, UTC (same instant; for calendars/sorting)
   image: string | null;
   priceRange: { min: number; max: number; currency: string } | null;
   venue: { name; city; state; country; lat: number | null; lng: number | null };
@@ -42,7 +43,7 @@ type Recommendation = {
 | `GET /api/me` | `{ id, displayName, location: {name,lat,lng,radius} \| null, watchlistCount, unreadAlerts }` |
 | `PUT /api/me/location` body `{ name, lat, lng, radius }` | `{ location }` (saved; used by alerts) |
 | `GET /api/me/top-artists?time_range=short_term\|medium_term\|long_term` | `Artist[]` |
-| `GET /api/me/taste` | `{ topGenres: {genre, weight}[] (weight 0..1, max 12), artistCount, windows: { short_term: Artist[10], medium_term: Artist[10], long_term: Artist[10] } }` |
+| `GET /api/me/taste` | `{ topGenres: {genre, weight}[] (weight 0..1, max 12), artistCount, windows: { short_term: Artist[10], medium_term: Artist[10], long_term: Artist[10] }, pending: number }` (`pending` as above) |
 
 ## Recommendations
 `GET /api/recommendations?lat&lng&radius=50&limit=20&from=YYYY-MM-DD&to=YYYY-MM-DD&weekend=1&maxPrice=80&genres=rock,pop&exclude=country`
@@ -52,7 +53,7 @@ Response:
 {
   recommendations: Recommendation[];
   discover: { artist: Artist; affinity; reasons; event: Event }[];   // "new to you"
-  profile: { topGenres: string[]; artistCount: number };
+  profile: { topGenres: string[]; artistCount: number; pending: number };   // pending > 0: genre lookups still running; refetch once in a few seconds for a fuller ranking
   radiusMiles: number;
   filters: { from, to, weekend, maxPrice, genres: string[], exclude: string[] };   // as applied
   meta: { scanned, candidates, scored, filteredOut };

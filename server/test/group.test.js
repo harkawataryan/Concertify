@@ -40,7 +40,7 @@ describe('rankForGroup', () => {
     // mean alone would give (ana+ben)/2; the min term pulls it further down
     expect(anaOnly.groupScore).toBeLessThan((ana.affinity + ben.affinity) / 2);
     expect(anaOnly.groupScore).toBeLessThan(ranked[0].groupScore);
-    expect(anaOnly.consensus).toBe('most');
+    expect(anaOnly.consensus).toBe('some'); // 1 of 2 is not "most"
     expect(anaOnly.reasons[0]).toBe('A match for Ana');
   });
 

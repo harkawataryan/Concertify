@@ -69,8 +69,9 @@ export function buildTasteProfile(topByRange, feedback = { artists: {}, genres: 
   const artists = new Map(); // id -> {id, name, genres, weight}
 
   for (const [range, list] of Object.entries(topByRange)) {
+    if (!Array.isArray(list)) continue;
     const rangeWeight = RANGE_WEIGHTS[range] ?? 0.5;
-    (list || []).forEach((artist, rank) => {
+    list.forEach((artist, rank) => {
       const w = rangeWeight * Math.exp(-rank / RANK_DECAY);
       const entry = artists.get(artist.id) || { id: artist.id, name: artist.name, genres: artist.genres || [], weight: 0 };
       entry.weight += w;

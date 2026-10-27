@@ -22,31 +22,34 @@ export function createTicketmasterClient({ apiKey, limit, withCache }) {
     }, { upstream: 'ticketmaster' }), { priority });
   }
 
+  /**
+   * Resolves an artist name to Ticketmaster's attraction record (id, genre
+   * labels, Spotify link) by fuzzy-matching search results. Cached for a
+   * day; misses are cached as null so unknown names cost one lookup.
+   */
+  async function findAttraction(name, { priority = 1 } = {}) {
+    const key = `tm:attraction:${name.toLowerCase()}`;
+    const hit = await withCache(key, 24 * 3600, async () => {
+      try {
+        // Usually background cache warming, so low priority by default: it
+        // must not hold up event pages a user is waiting on.
+        const res = await fetchPage({ keyword: name, size: 5 }, { url: ATTRACTIONS_URL, priority });
+        const attractions = res.data._embedded?.attractions || [];
+        const match = bestMatch(name, attractions, { threshold: 0.85, key: (a) => a.name });
+        if (!match) return null;
+        const a = match.match;
+        return { id: a.id, name: a.name, genres: classificationGenres(a.classifications), spotifyId: spotifyIdFromLinks(a.externalLinks) };
+      } catch (err) {
+        log.warn('ticketmaster attraction lookup failed', { name, err: err.message });
+        return null;
+      }
+    });
+    return hit ?? null;
+  }
+
+  // Methods are closures, not `this`-bound, so callers may destructure them.
   return {
-    /**
-     * Resolves an artist name to Ticketmaster's attraction record (id, genre
-     * labels, Spotify link) by fuzzy-matching search results. Cached for a
-     * day; misses are cached as null so unknown names cost one lookup.
-     */
-    async findAttraction(name, { priority = 1 } = {}) {
-      const key = `tm:attraction:${name.toLowerCase()}`;
-      const hit = await withCache(key, 24 * 3600, async () => {
-        try {
-          // Usually background cache warming, so low priority by default: it
-          // must not hold up event pages a user is waiting on.
-          const res = await fetchPage({ keyword: name, size: 5 }, { url: ATTRACTIONS_URL, priority });
-          const attractions = res.data._embedded?.attractions || [];
-          const match = bestMatch(name, attractions, { threshold: 0.85, key: (a) => a.name });
-          if (!match) return null;
-          const a = match.match;
-          return { id: a.id, name: a.name, genres: classificationGenres(a.classifications), spotifyId: spotifyIdFromLinks(a.externalLinks) };
-        } catch (err) {
-          log.warn('ticketmaster attraction lookup failed', { name, err: err.message });
-          return null;
-        }
-      });
-      return hit ?? null;
-    },
+    findAttraction,
 
     /**
      * Genre labels for an artist from Ticketmaster's taxonomy. Spotify stopped
@@ -54,7 +57,7 @@ export function createTicketmasterClient({ apiKey, limit, withCache }) {
      * genre signal for the taste profile.
      */
     async genresForArtist(name) {
-      return (await this.findAttraction(name))?.genres || [];
+      return (await findAttraction(name))?.genres || [];
     },
 
     /** All upcoming music events within `radiusMiles` of a point. */
@@ -108,7 +111,7 @@ export function createTicketmasterClient({ apiKey, limit, withCache }) {
       const key = `tm:artist:${name.toLowerCase()}`;
       return withCache(key, 60 * 60, async () => {
         try {
-          const attraction = await this.findAttraction(name, { priority });
+          const attraction = await findAttraction(name, { priority });
           const params = attraction
             ? { attractionId: attraction.id, size: 20, sort: 'date,asc' }
             : { keyword: name, size: 20, sort: 'date,asc' };
@@ -165,6 +168,8 @@ export function normalizeEvent(ev) {
     name: ev.name,
     url: ev.url,
     date: ev.dates?.start?.localDate || null,
+    // Venue-local wall-clock time ("20:00:00"); dateTime is the same instant in UTC.
+    time: ev.dates?.start?.localTime || null,
     dateTime: ev.dates?.start?.dateTime || null,
     image: pickImage(ev.images),
     priceRange: ev.priceRanges?.[0]

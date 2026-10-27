@@ -47,5 +47,8 @@ export async function enrichGenres(topByRange, { genresForArtist }, { budgetMs =
   for (const [range, list] of Object.entries(topByRange)) {
     enriched[range] = (list || []).map((a) => (a.genres?.length ? a : { ...a, genres: genresById.get(a.id) || [] }));
   }
+  // Non-enumerable so callers iterating ranges never see it; the API reports
+  // it so the client knows a refetch will be more complete.
+  Object.defineProperty(enriched, 'pending', { value: missing.size - genresById.size, enumerable: false });
   return enriched;
 }
