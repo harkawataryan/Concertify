@@ -9,6 +9,7 @@ import { parseFilters, applyFilters, availableGenres } from '../services/filters
 import { rankForGroup } from '../services/group.js';
 import { checkAlertsForUser } from '../services/alerts.js';
 import { eventToIcs } from '../services/calendar.js';
+import { fitWeights, toExample } from '../services/learning.js';
 import { TIME_RANGES } from '../services/spotify.js';
 
 const MAX_RADIUS_MI = 150;
@@ -16,6 +17,8 @@ const MAX_RADIUS_MI = 150;
 const ENRICH_BUDGET_MS = 2500;
 const MAX_PLAN_MEMBERS = 12;
 const MAX_WATCHLIST = 100;
+const MAX_EXAMPLES = 200;
+const SERVED_TTL_SEC = 24 * 3600;
 
 /**
  * Loads the user's top artists with genres filled in. Called at login to
@@ -75,10 +78,13 @@ function publicPlan(plan) {
   };
 }
 
-export function apiRouter({ spotify, ticketmaster, store }) {
+export function apiRouter({ spotify, ticketmaster, store, cache }) {
   const router = express.Router();
   const auth = requireAuth(spotify);
   const deps = { spotify, ticketmaster };
+  // Component scores of the shows most recently served to a user, so a
+  // later thumbs up/down can become a training example for their ranker.
+  const servedKey = (userId) => `served:${userId}`;
 
   const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
@@ -177,12 +183,25 @@ export function apiRouter({ spotify, ticketmaster, store }) {
       ...Object.entries(user.feedback.artists).filter(([, s]) => s > 0).map(([id]) => id)
     ]);
 
-    const result = await recommendEvents({ events, profile, origin, resolveArtist, limit, likedArtists });
+    const learned = fitWeights(user.examples);
+    const result = await recommendEvents({ events, profile, origin, resolveArtist, limit, likedArtists, weights: learned.weights });
+
+    const served = (await cache.get(servedKey(req.user.id))) || {};
+    for (const rec of result.recommendations) if (rec.artist) served[rec.artist.id] = rec.components;
+    await cache.set(servedKey(req.user.id), served, SERVED_TTL_SEC);
+
     const saved = (rec) => ({ ...rec, saved: Boolean(rec.artist && watchlistIds.has(rec.artist.id)) });
     return res.json({
       ...result,
       recommendations: result.recommendations.map(saved),
-      profile: { topGenres: profile.topGenres, artistCount: profile.artists.size, pending: topByRange.pending || 0 },
+      profile: {
+        topGenres: profile.topGenres,
+        artistCount: profile.artists.size,
+        pending: topByRange.pending || 0,
+        weights: learned.weights,
+        personalized: learned.personalized,
+        ratings: learned.examples
+      },
       radiusMiles,
       filters,
       meta: { ...result.meta, filteredOut },
@@ -251,10 +270,13 @@ export function apiRouter({ spotify, ticketmaster, store }) {
     if (!['artist', 'genre'].includes(type) || typeof id !== 'string' || ![1, -1, 0].includes(signal)) {
       return res.status(400).json({ error: 'expected {type: "artist"|"genre", id: string, signal: 1|-1|0}' });
     }
+    const served = type === 'artist' && signal !== 0 ? (await cache.get(servedKey(req.user.id)))?.[id] : null;
     const user = await store.updateUser(req.user.id, (u) => {
       const bucket = type === 'artist' ? u.feedback.artists : u.feedback.genres;
       if (signal === 0) delete bucket[id];
       else bucket[id] = signal;
+      // A rating on a show we scored becomes a training example for this user's weights.
+      if (served) u.examples = [...(u.examples || []), toExample(served, signal)].slice(-MAX_EXAMPLES);
     });
     return res.json(user.feedback);
   }));
