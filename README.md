@@ -33,7 +33,7 @@ Explicit feedback adjusts the profile (a thumbs-down removes an artist and suppr
 
 ## Running locally
 
-Requirements: Node 20+, a [Spotify app](https://developer.spotify.com/dashboard) (add `http://localhost:8088/auth/callback` as a redirect URI), and a [Ticketmaster API key](https://developer.ticketmaster.com).
+Requirements: Node 20+, a [Spotify app](https://developer.spotify.com/dashboard) (add `http://127.0.0.1:8088/auth/callback` as a redirect URI; Spotify rejects `localhost`), and a [Ticketmaster API key](https://developer.ticketmaster.com).
 
 ```bash
 cp server/.env.sample server/.env   # fill in the keys
@@ -42,7 +42,7 @@ cd server && npm install && npm run dev
 cd client && npm install && npm run dev
 ```
 
-Open http://localhost:5173.
+Open http://127.0.0.1:5173 (not `localhost`: Spotify only accepts the loopback IP as a redirect URI, and session cookies are scoped to the hostname).
 
 With Docker, `docker compose up` starts the server with Redis-backed caching; run the client separately.
 
