@@ -1,8 +1,10 @@
 import { requestWithRetry } from '../lib/http.js';
 import { cacheKeyForPoint } from '../lib/geo.js';
+import { bestMatch } from '../lib/fuzzy.js';
 import { log } from '../lib/logger.js';
 
 const EVENTS_URL = 'https://app.ticketmaster.com/discovery/v2/events.json';
+const ATTRACTIONS_URL = 'https://app.ticketmaster.com/discovery/v2/attractions.json';
 // Discovery API refuses deep pagination: size * page must stay under 1000.
 const PAGE_SIZE = 200;
 const MAX_PAGES = 4;
@@ -13,14 +15,34 @@ const MAX_PAGES = 4;
  * even when many users load the app at once.
  */
 export function createTicketmasterClient({ apiKey, limit, withCache }) {
-  async function fetchPage(params) {
+  async function fetchPage(params, url = EVENTS_URL) {
     return limit(() => requestWithRetry({
-      url: EVENTS_URL,
+      url,
       params: { apikey: apiKey, classificationName: 'Music', ...params }
     }, { upstream: 'ticketmaster' }));
   }
 
   return {
+    /**
+     * Genre labels for an artist from Ticketmaster's taxonomy. Spotify stopped
+     * returning genres on artist objects in 2025, so this is now the main
+     * genre signal for the taste profile. Cached for a day; misses cache too.
+     */
+    async genresForArtist(name) {
+      const key = `tm:genres:${name.toLowerCase()}`;
+      return withCache(key, 24 * 3600, async () => {
+        try {
+          const res = await fetchPage({ keyword: name, size: 5 }, ATTRACTIONS_URL);
+          const attractions = res.data._embedded?.attractions || [];
+          const hit = bestMatch(name, attractions, { threshold: 0.85, key: (a) => a.name });
+          return hit ? classificationGenres(hit.match.classifications) : [];
+        } catch (err) {
+          log.warn('ticketmaster genre lookup failed', { name, err: err.message });
+          return [];
+        }
+      });
+    },
+
     /** All upcoming music events within `radiusMiles` of a point. */
     async eventsNear(point, { radiusMiles = 50 } = {}) {
       const key = `tm:near:${cacheKeyForPoint(point)}:${radiusMiles}`;
@@ -35,7 +57,7 @@ export function createTicketmasterClient({ apiKey, limit, withCache }) {
             page,
             sort: 'date,asc'
           });
-          events.push(...(res.data._embedded?.events || []).map(normalizeEvent));
+          events.push(...(res.data._embedded?.events || []).filter(isConcert).map(normalizeEvent));
           const totalPages = res.data.page?.totalPages ?? 1;
           if (page + 1 >= totalPages) break;
         }
@@ -50,7 +72,7 @@ export function createTicketmasterClient({ apiKey, limit, withCache }) {
       return withCache(key, 60 * 60, async () => {
         try {
           const res = await fetchPage({ keyword: name, size: 10, sort: 'date,asc' });
-          return (res.data._embedded?.events || []).map(normalizeEvent);
+          return (res.data._embedded?.events || []).filter(isConcert).map(normalizeEvent);
         } catch (err) {
           // One flaky artist lookup shouldn't blank the whole page.
           log.warn('ticketmaster artist lookup failed', { name, err: err.message });
@@ -59,6 +81,18 @@ export function createTicketmasterClient({ apiKey, limit, withCache }) {
       });
     }
   };
+}
+
+const ANCILLARY = /^(premium seating|parking|vip|official platinum|upgrade)\b|\b(parking|package|upgrade|shuttle|camping)\b/i;
+
+/**
+ * Ticketmaster lists ticket add-ons (premium seating, parking, VIP packages)
+ * as separate events alongside the concert itself. Drop those and anything
+ * cancelled so they can't outrank the real show.
+ */
+export function isConcert(ev) {
+  if (ev.dates?.status?.code === 'cancelled') return false;
+  return !ANCILLARY.test(ev.name || '');
 }
 
 /**
