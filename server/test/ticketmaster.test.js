@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isConcert, normalizeEvent } from '../src/services/ticketmaster.js';
+import { isConcert, normalizeEvent, performedBy } from '../src/services/ticketmaster.js';
 
 describe('isConcert', () => {
   it('keeps real shows', () => {
@@ -13,6 +13,24 @@ describe('isConcert', () => {
     expect(isConcert({ name: 'Knocked Loose VIP Package' })).toBe(false);
     expect(isConcert({ name: 'PARKING: Luke Combs' })).toBe(false);
     expect(isConcert({ name: 'Mitski', dates: { status: { code: 'cancelled' } } })).toBe(false);
+  });
+});
+
+describe('performedBy', () => {
+  const ev = (attractions, name = 'Some Event') => ({ name, attractions: attractions.map((n) => ({ name: n })) });
+
+  it('matches on a listed performer, tolerating tour suffixes', () => {
+    expect(performedBy(ev(['Mannequin Pussy', 'Wednesday']), 'Wednesday')).toBe(true);
+    expect(performedBy(ev(['Mitski - The Land Is Inhospitable Tour']), 'Mitski')).toBe(true);
+  });
+
+  it('rejects keyword-only hits', () => {
+    expect(performedBy(ev(['Wednesday Night Jazz Jam']), 'Wednesday')).toBe(false);
+    expect(performedBy(ev([], 'Wednesday Comedy Open Mic'), 'Wednesday')).toBe(false);
+  });
+
+  it('falls back to the event title when no performers are listed', () => {
+    expect(performedBy(ev([], 'Spoon'), 'Spoon')).toBe(true);
   });
 });
 

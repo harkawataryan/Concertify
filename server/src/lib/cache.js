@@ -1,4 +1,5 @@
 import { log } from './logger.js';
+import { cacheRequests } from './metrics.js';
 
 /**
  * Cache interface used throughout the server:
@@ -93,8 +94,15 @@ export function cached(cache) {
   const inflight = new Map();
   return async function withCache(key, ttlSeconds, compute) {
     const hit = await cache.get(key);
-    if (hit !== undefined) return hit;
-    if (inflight.has(key)) return inflight.get(key);
+    if (hit !== undefined) {
+      cacheRequests.inc({ result: 'hit' });
+      return hit;
+    }
+    if (inflight.has(key)) {
+      cacheRequests.inc({ result: 'coalesced' });
+      return inflight.get(key);
+    }
+    cacheRequests.inc({ result: 'miss' });
     const p = (async () => {
       try {
         const value = await compute();

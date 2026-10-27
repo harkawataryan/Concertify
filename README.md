@@ -1,8 +1,16 @@
 # Concertify
 
-Concert discovery ranked by what you actually listen to. Log in with Spotify, pick a location, and Concertify scores every upcoming show nearby against your listening history, explains why each one was picked, and learns from thumbs up/down.
+Concert discovery ranked by what you actually listen to. Log in with Spotify, pick a location, and Concertify scores every upcoming show nearby against your listening history, explains why each one was picked, and learns from your feedback.
 
-React (Vite) front end, Node/Express back end, Spotify Web API + Ticketmaster Discovery API.
+React (Vite) front end, Node/Express back end, Spotify Web API + Ticketmaster Discovery API. Full endpoint reference in [`docs/API.md`](docs/API.md).
+
+## Features
+
+- **Ranked local shows** with plain-English reasons and a per-result score breakdown, filterable by date range, weekends, max ticket price, radius and genre.
+- **Group plans**: create a plan, share the link, and friends who join have their taste merged into one ranking (mean affinity with a least-misery floor), with per-person scores on every show.
+- **Watchlist and alerts**: save artists; a background job checks for newly listed shows within your saved radius and surfaces them in an inbox.
+- **Map view**, **taste insights** (your genre profile across listening windows), **calendar export** for any show, and thumbs up/down that reshape your profile.
+- **Operational**: Prometheus `/metrics` (request latency, cache hit ratio, upstream status mix), structured logs, health check.
 
 ## How recommendations work
 
@@ -57,11 +65,16 @@ All `/api` routes require a session cookie from `/auth/login`.
 
 | route | description |
 |---|---|
-| `GET /api/me` | current user |
+| `GET /api/me` | current user, saved location, unread alert count |
 | `GET /api/me/top-artists?time_range=short_term\|medium_term\|long_term` | top artists for a window |
 | `GET /api/concerts?lat&lng` | upcoming shows anywhere for your top artists, nearest first |
-| `GET /api/recommendations?lat&lng&radius&limit` | ranked local shows, "new to you" artists, and scoring breakdowns |
+| `GET /api/recommendations?lat&lng&radius&limit&from&to&weekend&maxPrice&genres&exclude` | ranked local shows, "new to you" artists, and scoring breakdowns |
 | `GET /api/feedback`, `POST /api/feedback {type, id, signal}` | thumbs up/down on an artist or genre |
+| `GET/PUT/DELETE /api/watchlist[/:artistId]` | saved artists with their next show |
+| `GET /api/alerts`, `POST /api/alerts/read`, `POST /api/alerts/refresh` | watchlist alerts inbox |
+| `POST /api/plans`, `GET /api/plans/:code`, `GET /api/plans/:code/recommendations` | group plans and group ranking |
+| `GET /api/events/:id/calendar.ics` | iCalendar file for a show |
+| `GET /metrics` | Prometheus metrics |
 
 ## Tests
 

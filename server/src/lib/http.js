@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { log } from './logger.js';
+import { upstreamRequests } from './metrics.js';
 
 export class UpstreamError extends Error {
   constructor(message, { status, upstream, retryable }) {
@@ -44,9 +45,12 @@ export async function requestWithRetry(config, {
   let attempt = 0;
   for (;;) {
     try {
-      return await axios({ timeout: 8000, ...config });
+      const res = await axios({ timeout: 8000, ...config });
+      upstreamRequests.inc({ upstream, status: res.status });
+      return res;
     } catch (err) {
       const status = err.response?.status;
+      upstreamRequests.inc({ upstream, status: status || 'network' });
       const retryable = isRetryable(err);
       if (!retryable || attempt >= retries) {
         throw new UpstreamError(`${upstream} request failed${status ? ` (${status})` : ''}`, {

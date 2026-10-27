@@ -7,16 +7,20 @@ import rateLimit from 'express-rate-limit';
 import { loadConfig } from './config.js';
 import { log } from './lib/logger.js';
 import { createCache, cached } from './lib/cache.js';
+import { createStore } from './lib/store.js';
 import { limited } from './lib/limiter.js';
 import { UpstreamError } from './lib/http.js';
+import { metricsMiddleware, metricsHandler } from './lib/metrics.js';
 import { createSpotifyClient } from './services/spotify.js';
 import { createTicketmasterClient } from './services/ticketmaster.js';
+import { startAlertJob } from './services/alerts.js';
 import { authRouter } from './routes/auth.js';
 import { apiRouter, loadListeningProfile } from './routes/api.js';
 
 export async function createApp(config) {
   const cache = await createCache({ redisUrl: config.redisUrl, maxEntries: config.cache.maxEntries });
   const withCache = cached(cache);
+  const store = createStore(cache);
 
   // Spotify publishes no hard quota but 429s bursts; keep lookups polite.
   const spotify = createSpotifyClient({
@@ -35,6 +39,7 @@ export async function createApp(config) {
 
   const app = express();
   app.set('trust proxy', 1);
+  app.use(metricsMiddleware());
   app.use(express.json({ limit: '10kb' }));
   app.use(cors({ origin: config.frontendUrl, credentials: true }));
   app.use(cookieSession({
@@ -47,10 +52,14 @@ export async function createApp(config) {
   }));
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
+  app.get('/metrics', metricsHandler);
   app.use('/auth', authRouter({
     spotify,
     frontendUrl: config.frontendUrl,
-    onLogin: (user) => loadListeningProfile({ spotify, ticketmaster }, user)
+    onLogin: async (user) => {
+      await store.updateUser(user.userId, (u) => { u.displayName = user.displayName; });
+      await loadListeningProfile({ spotify, ticketmaster }, user);
+    }
   }));
   app.use('/api', rateLimit({
     windowMs: config.rateLimit.windowMs,
@@ -59,7 +68,7 @@ export async function createApp(config) {
     legacyHeaders: false,
     keyGenerator: (req) => req.session?.userId || req.ip
   }));
-  app.use('/api', apiRouter({ spotify, ticketmaster, cache }));
+  app.use('/api', apiRouter({ spotify, ticketmaster, store }));
 
   // In production the built client is served from the same origin as the
   // API, so the session cookie is first-party and no CORS is involved.
@@ -78,11 +87,13 @@ export async function createApp(config) {
       const status = err.status === 429 ? 429 : 502;
       return res.status(status).json({ error: 'upstream_unavailable', upstream: err.upstream });
     }
+    if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
     log.error('unhandled error', { err: err.stack || err.message, path: req.path });
     return res.status(500).json({ error: 'internal_error' });
   });
 
-  return app;
+  const alertJob = startAlertJob({ store, ticketmaster, intervalMs: config.alertIntervalMs });
+  return Object.assign(app, { alertJob });
 }
 
 if (process.argv[1] && process.argv[1].endsWith('index.js')) {
