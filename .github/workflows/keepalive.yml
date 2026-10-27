@@ -1,0 +1,19 @@
+# Keeps the free Render instance from sleeping (it idles out after 15 minutes
+# without traffic) by hitting the health endpoint on a schedule. GitHub's cron
+# can run a few minutes late, so the interval is well under the limit.
+name: Keep alive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 https://concertify-cm6k.onrender.com/health)
+          echo "health returned $code"
+          test "$code" = "200"
