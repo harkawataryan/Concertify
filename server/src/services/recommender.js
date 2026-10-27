@@ -39,7 +39,8 @@ export async function recommendEvents({
   now = Date.now(),
   limit = 20,
   diversity = 0.3,
-  likedArtists = new Set()
+  likedArtists = new Set(),
+  weights = WEIGHTS
 }) {
   const stage1 = events
     .map((event) => ({ event, prelim: preliminaryScore(event, profile) }))
@@ -51,7 +52,7 @@ export async function recommendEvents({
   const candidates = stage1.filter((c, i) => c.prelim.direct > 0 || i < STAGE1_KEEP);
 
   const scored = (await mapLimit(candidates, SCORE_CONCURRENCY, (c) => scoreCandidate(c, {
-    profile, origin, resolveArtist, now, likedArtists
+    profile, origin, resolveArtist, now, likedArtists, weights
   }))).filter(Boolean);
 
   const grouped = groupByArtist(scored);
@@ -117,7 +118,7 @@ function directFromNames(event, profile) {
   return best;
 }
 
-async function scoreCandidate({ event }, { profile, origin, resolveArtist, now, likedArtists }) {
+async function scoreCandidate({ event }, { profile, origin, resolveArtist, now, likedArtists, weights }) {
   const attractions = event.attractions.slice(0, MAX_ATTRACTIONS_PER_EVENT);
   const resolved = (await Promise.all(attractions.map((a) => resolveArtist(a)))).filter(Boolean);
 
@@ -161,7 +162,7 @@ async function scoreCandidate({ event }, { profile, origin, resolveArtist, now, 
   const soon = daysOut == null ? 0.5 : Math.exp(-daysOut / DATE_SCALE_DAYS);
 
   const primary = directArtist || resolved[0] || null;
-  let affinity = WEIGHTS.direct * direct + WEIGHTS.genre * genre + WEIGHTS.proximity * proximity + WEIGHTS.soon * soon;
+  let affinity = weights.direct * direct + weights.genre * genre + weights.proximity * proximity + weights.soon * soon;
   if (primary && likedArtists.has(primary.id)) affinity += 0.15;
   affinity = Math.min(1, affinity);
 
