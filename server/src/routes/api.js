@@ -134,7 +134,7 @@ export function apiRouter({ spotify, ticketmaster, store }) {
       .slice(0, 12)
       .map(([genre, w]) => ({ genre, weight: Math.round((w / max) * 1000) / 1000 }));
     const windows = Object.fromEntries(TIME_RANGES.map((r) => [r, (topByRange[r] || []).slice(0, 10)]));
-    res.json({ topGenres, artistCount: profile.artists.size, windows });
+    res.json({ topGenres, artistCount: profile.artists.size, windows, pending: topByRange.pending || 0 });
   }));
 
   // ---- recommendations ----------------------------------------------------
@@ -182,7 +182,7 @@ export function apiRouter({ spotify, ticketmaster, store }) {
     return res.json({
       ...result,
       recommendations: result.recommendations.map(saved),
-      profile: { topGenres: profile.topGenres, artistCount: profile.artists.size },
+      profile: { topGenres: profile.topGenres, artistCount: profile.artists.size, pending: topByRange.pending || 0 },
       radiusMiles,
       filters,
       meta: { ...result.meta, filteredOut },

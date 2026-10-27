@@ -47,7 +47,7 @@ export async function rankForGroup({ plan, events, origin, resolveArtist, now = 
       ...best,
       groupScore: round(GROUP_WEIGHTS.mean * mean + GROUP_WEIGHTS.min * min),
       perMember: scores.sort((a, b) => b.affinity - a.affinity),
-      consensus: fans === n ? 'everyone' : fans * 2 >= n ? 'most' : 'some',
+      consensus: fans === n ? 'everyone' : fans * 2 > n ? 'most' : 'some',
       reasons: groupReasons(scores, best)
     };
   });

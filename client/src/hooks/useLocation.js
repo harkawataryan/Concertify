@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { api } from '../api.js';
 
 export const PRESET_CITIES = [
   { name: 'Austin, TX', lat: 30.2672, lng: -97.7431 },
@@ -13,6 +14,7 @@ export const PRESET_CITIES = [
   { name: 'Atlanta, GA', lat: 33.749, lng: -84.388 }
 ];
 
+export const RADII = [25, 50, 100, 150];
 const STORAGE_KEY = 'concertify.location';
 
 function readSaved() {
@@ -25,36 +27,42 @@ function readSaved() {
 }
 
 /**
- * Where to search. Tries the saved choice, then browser geolocation, and
- * always lets the user pick a preset city instead.
+ * Where to search: {name, lat, lng, radius}. Server-saved location wins
+ * (it's what alerts use), then localStorage, then device geolocation.
  */
-export function useLocation() {
-  const [location, setLocationState] = useState(readSaved);
-  const [status, setStatus] = useState(location ? 'ready' : 'idle');
+export function useLocation(serverLocation) {
+  const [location, setLocationState] = useState(() => serverLocation || readSaved());
+  const [status, setStatus] = useState('idle');
 
-  const setLocation = useCallback((loc) => {
+  useEffect(() => {
+    if (serverLocation && !location) setLocationState(serverLocation);
+  }, [serverLocation]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setLocation = useCallback((next) => {
+    const loc = { radius: 50, ...next };
     setLocationState(loc);
     setStatus('ready');
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(loc));
-    } catch {
-      // Private mode or blocked storage; the choice just won't persist.
-    }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(loc)); } catch { /* storage blocked; fine */ }
+    api.saveLocation(loc).catch(() => {});
   }, []);
+
+  const setRadius = useCallback((radius) => {
+    if (location) setLocation({ ...location, radius });
+  }, [location, setLocation]);
 
   const useDeviceLocation = useCallback(() => {
     if (!navigator.geolocation) return setStatus('unsupported');
     setStatus('locating');
     navigator.geolocation.getCurrentPosition(
-      (pos) => setLocation({ name: 'Near me', lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => setLocation({ name: 'Near me', lat: pos.coords.latitude, lng: pos.coords.longitude, radius: location?.radius || 50 }),
       () => setStatus('denied'),
       { timeout: 8000, maximumAge: 10 * 60 * 1000 }
     );
-  }, [setLocation]);
+  }, [setLocation, location]);
 
   useEffect(() => {
-    if (!location) useDeviceLocation();
+    if (!location && !serverLocation) useDeviceLocation();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { location, status, setLocation, useDeviceLocation };
+  return { location, status, setLocation, setRadius, useDeviceLocation };
 }
