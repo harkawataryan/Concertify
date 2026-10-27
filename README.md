@@ -2,7 +2,20 @@
 
 Concert discovery ranked by what you actually listen to. Log in with Spotify, pick a location, and Concertify scores every upcoming show nearby against your listening history, explains why each one was picked, and learns from your feedback.
 
-React (Vite) front end, Node/Express back end, Spotify Web API + Ticketmaster Discovery API. Full endpoint reference in [`docs/API.md`](docs/API.md).
+React (Vite) front end; Node/Express API; a **Go gRPC ranking service**; a **Python/PyTorch gRPC trainer**; Spotify Web API + Ticketmaster Discovery API. Full endpoint reference in [`docs/API.md`](docs/API.md); the gRPC contract is [`proto/concertify.proto`](proto/concertify.proto).
+
+## Architecture
+
+```
+browser ──HTTP──▶ Node API (auth, caching, retrieval, explanations)
+                     │ gRPC                      │ gRPC
+                     ▼                           ▼
+            Go ranker (scoring, MMR,     Python trainer (per-user
+            group aggregation,           ranking weights, PyTorch
+            Prometheus metrics)          logistic regression)
+```
+
+Retrieval (which shows to consider) and everything that touches third-party APIs stay in Node. The numeric work is a stateless Go service: every request carries the listener profile, candidates and weights, so it scales horizontally and ranks a few hundred candidates in about a millisecond. Model fitting is a Python service so the training code is in the ecosystem it belongs to. Both sidecars are optional: with `RANKER_ADDR` / `TRAINER_ADDR` unset the Node process runs the reference implementations in-process (that is how the unit tests run), and the Go and Python code are ports of those references with their own tests.
 
 ## Features
 
@@ -38,7 +51,7 @@ Explicit feedback does two things: it adjusts the profile (a thumbs-down removes
 - **Resilience** ([`lib/http.js`](server/src/lib/http.js)): retries with exponential backoff and full jitter, honoring `Retry-After` on 429s.
 - **Latency**: the listening profile is warmed in the background the moment a user logs in; a request waits at most 2.5s for cold genre lookups and ranks with what it has while the rest finish for next time; event pages fetch in parallel; the ranking path makes no Spotify calls at all.
 - **Auth** ([`middleware/auth.js`](server/src/middleware/auth.js)): Spotify Authorization Code flow with CSRF state, and transparent refresh-token rotation before the access token expires.
-- **Tests**: `vitest` unit tests for the ranker, taste profile, fuzzy matcher, cache, limiter and retry logic. CI runs them and builds the client on every push.
+- **Tests**: `vitest` for the Node API (72), `go test` for the ranker, `pytest` for the trainer. CI runs all three and builds the client on every push.
 
 ## Running locally
 
@@ -80,4 +93,8 @@ All `/api` routes require a session cookie from `/auth/login`.
 
 ```bash
 cd server && npm test
+cd ranker && go test ./...
+cd trainer && .venv/bin/pytest
 ```
+
+To run the sidecars locally: `cd ranker && go run .` and `cd trainer && .venv/bin/python server.py`, then set `RANKER_ADDR=127.0.0.1:50051 TRAINER_ADDR=127.0.0.1:50052` for the API. Regenerate stubs after editing the proto with `ranker/gen.sh` equivalent (`protoc` with the Go plugins) and `trainer/gen.sh`.

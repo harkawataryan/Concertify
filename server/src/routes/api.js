@@ -9,7 +9,7 @@ import { parseFilters, applyFilters, availableGenres } from '../services/filters
 import { rankForGroup } from '../services/group.js';
 import { checkAlertsForUser } from '../services/alerts.js';
 import { eventToIcs } from '../services/calendar.js';
-import { fitWeights, toExample } from '../services/learning.js';
+import { toExample } from '../services/learning.js';
 import { TIME_RANGES } from '../services/spotify.js';
 
 const MAX_RADIUS_MI = 150;
@@ -78,7 +78,7 @@ function publicPlan(plan) {
   };
 }
 
-export function apiRouter({ spotify, ticketmaster, store, cache }) {
+export function apiRouter({ spotify, ticketmaster, store, cache, ranker = null, fitWeights }) {
   const router = express.Router();
   const auth = requireAuth(spotify);
   const deps = { spotify, ticketmaster };
@@ -183,8 +183,8 @@ export function apiRouter({ spotify, ticketmaster, store, cache }) {
       ...Object.entries(user.feedback.artists).filter(([, s]) => s > 0).map(([id]) => id)
     ]);
 
-    const learned = fitWeights(user.examples);
-    const result = await recommendEvents({ events, profile, origin, resolveArtist, limit, likedArtists, weights: learned.weights });
+    const learned = await fitWeights(user.examples);
+    const result = await recommendEvents({ events, profile, origin, resolveArtist, limit, likedArtists, weights: learned.weights, ranker });
 
     const served = (await cache.get(servedKey(req.user.id))) || {};
     for (const rec of result.recommendations) if (rec.artist) served[rec.artist.id] = rec.components;
@@ -354,7 +354,7 @@ export function apiRouter({ spotify, ticketmaster, store, cache }) {
       ticketmaster.eventsNear(origin, { radiusMiles }),
       store.getUser(req.user.id)
     ]);
-    const ranked = await rankForGroup({ plan: publicPlanWithProfiles(plan), events, origin, resolveArtist, limit });
+    const ranked = await rankForGroup({ plan: publicPlanWithProfiles(plan), events, origin, resolveArtist, limit, ranker });
     const watchlistIds = new Set(Object.keys(user.watchlist));
     return res.json({
       plan: publicPlan(plan),
