@@ -1,10 +1,8 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import grpc from '@grpc/grpc-js';
 import protoLoader from '@grpc/proto-loader';
 import { log } from '../lib/logger.js';
+import { PROTO_PATH } from '../lib/proto.js';
 
-const PROTO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../proto/concertify.proto');
 const DEADLINE_MS = 3000;
 
 /**
@@ -15,7 +13,7 @@ const DEADLINE_MS = 3000;
  */
 export function createRankerClient({ addr }) {
   if (!addr) return null;
-  const def = protoLoader.loadSync(PROTO, { keepCase: true, longs: Number, defaults: true });
+  const def = protoLoader.loadSync(PROTO_PATH, { keepCase: true, longs: Number, defaults: true });
   const { concertify } = grpc.loadPackageDefinition(def);
   const client = new concertify.Ranker(addr, grpc.credentials.createInsecure());
   log.info('ranker: using gRPC service', { addr });
