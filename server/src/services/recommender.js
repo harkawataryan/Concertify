@@ -82,7 +82,7 @@ function ticketmasterGenres(event) {
 }
 
 function preliminaryScore(event, profile) {
-  const direct = directFromNames(event, profile);
+  const { weight: direct } = directFromNames(event, profile);
   const tm = genreVectors(ticketmasterGenres(event).map((g) => [g, 1]));
   const genre = cosine(tm.tokens, profile.genres.tokens);
   return { direct, genre, score: 0.6 * direct + 0.4 * genre };
@@ -102,16 +102,17 @@ async function mapLimit(items, concurrency, fn) {
   return results;
 }
 
+/** Strongest profile match among the event's performers, by Spotify id or fuzzy name. */
 function directFromNames(event, profile) {
-  let best = 0;
+  let best = { weight: 0, attraction: null };
   for (const a of event.attractions) {
     const byId = a.spotifyId && profile.artists.get(a.spotifyId);
-    if (byId) {
-      best = Math.max(best, byId.weight);
-      continue;
+    let weight = byId ? byId.weight : 0;
+    if (!byId) {
+      const hit = bestMatch(a.name, profile.artistNames, { threshold: DIRECT_NAME_THRESHOLD, key: (x) => x.name });
+      if (hit) weight = profile.artists.get(hit.match.id)?.weight || 0;
     }
-    const hit = bestMatch(a.name, profile.artistNames, { threshold: DIRECT_NAME_THRESHOLD, key: (x) => x.name });
-    if (hit) best = Math.max(best, profile.artists.get(hit.match.id)?.weight || 0);
+    if (weight > best.weight) best = { weight, attraction: a };
   }
   return best;
 }
@@ -131,8 +132,16 @@ async function scoreCandidate({ event }, { profile, origin, resolveArtist, now, 
       directArtist = a;
     }
   }
-  // Fall back to the name match when Spotify search couldn't resolve the performer.
-  if (direct === 0) direct = directFromNames(event, profile);
+  // Fall back to the name match when ids didn't line up, and make sure the
+  // card is headlined by the performer that matched, not whoever is listed first.
+  if (direct === 0) {
+    const byName = directFromNames(event, profile);
+    if (byName.weight > 0) {
+      direct = byName.weight;
+      directArtist = resolved.find((a) => a.name === byName.attraction.name)
+        || { id: byName.attraction.spotifyId || `tm:${byName.attraction.id}`, name: byName.attraction.name, genres: byName.attraction.genres || [], image: null, url: null };
+    }
+  }
 
   // Candidate genre vector: Spotify genres at full weight when present,
   // Ticketmaster's labels (event and performer) at half so they inform but

@@ -4,7 +4,7 @@ import { log } from '../lib/logger.js';
 
 const SCOPES = ['user-top-read'];
 
-export function authRouter({ spotify, frontendUrl }) {
+export function authRouter({ spotify, frontendUrl, onLogin = () => {} }) {
   const router = express.Router();
 
   router.get('/login', (req, res) => {
@@ -31,6 +31,9 @@ export function authRouter({ spotify, frontendUrl }) {
         expiresAt: tokens.expiresAt
       };
       log.info('user logged in', { userId: profile.id });
+      // Fire and forget: warm the user's listening profile while they pick a location.
+      Promise.resolve(onLogin({ accessToken: tokens.accessToken, userId: profile.id }))
+        .catch((err) => log.warn('profile warm-up failed', { userId: profile.id, err: err.message }));
       return res.redirect(frontendUrl);
     } catch (err) {
       return next(err);

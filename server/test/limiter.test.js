@@ -52,6 +52,19 @@ describe('ConcurrencyGate', () => {
   });
 });
 
+describe('ConcurrencyGate priority', () => {
+  it('runs lower-priority-number waiters first regardless of arrival order', async () => {
+    const gate = new ConcurrencyGate(1);
+    const order = [];
+    await gate.acquire(); // occupy the single slot
+    const bg = gate.acquire(5).then(() => { order.push('background'); gate.release(); });
+    const fg = gate.acquire(0).then(() => { order.push('foreground'); gate.release(); });
+    gate.release();
+    await Promise.all([bg, fg]);
+    expect(order).toEqual(['foreground', 'background']);
+  });
+});
+
 describe('limited', () => {
   it('returns the wrapped function result and releases on error', async () => {
     const run = limited({ ratePerSecond: 100, maxConcurrency: 1 });
