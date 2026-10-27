@@ -12,7 +12,7 @@ import { UpstreamError } from './lib/http.js';
 import { createSpotifyClient } from './services/spotify.js';
 import { createTicketmasterClient } from './services/ticketmaster.js';
 import { authRouter } from './routes/auth.js';
-import { apiRouter } from './routes/api.js';
+import { apiRouter, loadListeningProfile } from './routes/api.js';
 
 export async function createApp(config) {
   const cache = await createCache({ redisUrl: config.redisUrl, maxEntries: config.cache.maxEntries });
@@ -47,7 +47,11 @@ export async function createApp(config) {
   }));
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
-  app.use('/auth', authRouter({ spotify, frontendUrl: config.frontendUrl }));
+  app.use('/auth', authRouter({
+    spotify,
+    frontendUrl: config.frontendUrl,
+    onLogin: (user) => loadListeningProfile({ spotify, ticketmaster }, user)
+  }));
   app.use('/api', rateLimit({
     windowMs: config.rateLimit.windowMs,
     max: config.rateLimit.max,

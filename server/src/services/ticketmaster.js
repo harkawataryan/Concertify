@@ -15,11 +15,11 @@ const MAX_PAGES = 4;
  * even when many users load the app at once.
  */
 export function createTicketmasterClient({ apiKey, limit, withCache }) {
-  async function fetchPage(params, url = EVENTS_URL) {
+  async function fetchPage(params, { url = EVENTS_URL, priority = 0 } = {}) {
     return limit(() => requestWithRetry({
       url,
       params: { apikey: apiKey, classificationName: 'Music', ...params }
-    }, { upstream: 'ticketmaster' }));
+    }, { upstream: 'ticketmaster' }), { priority });
   }
 
   return {
@@ -32,7 +32,9 @@ export function createTicketmasterClient({ apiKey, limit, withCache }) {
       const key = `tm:genres:${name.toLowerCase()}`;
       return withCache(key, 24 * 3600, async () => {
         try {
-          const res = await fetchPage({ keyword: name, size: 5 }, ATTRACTIONS_URL);
+          // Low priority: these mostly run as background cache warming and
+          // must not hold up event pages a user is waiting on.
+          const res = await fetchPage({ keyword: name, size: 5 }, { url: ATTRACTIONS_URL, priority: 1 });
           const attractions = res.data._embedded?.attractions || [];
           const hit = bestMatch(name, attractions, { threshold: 0.85, key: (a) => a.name });
           return hit ? classificationGenres(hit.match.classifications) : [];
@@ -47,21 +49,24 @@ export function createTicketmasterClient({ apiKey, limit, withCache }) {
     async eventsNear(point, { radiusMiles = 50 } = {}) {
       const key = `tm:near:${cacheKeyForPoint(point)}:${radiusMiles}`;
       return withCache(key, 15 * 60, async () => {
-        const events = [];
-        for (let page = 0; page < MAX_PAGES; page += 1) {
-          const res = await fetchPage({
-            latlong: `${point.lat},${point.lng}`,
-            radius: radiusMiles,
-            unit: 'miles',
-            size: PAGE_SIZE,
-            page,
-            sort: 'date,asc'
-          });
-          events.push(...(res.data._embedded?.events || []).filter(isConcert).map(normalizeEvent));
-          const totalPages = res.data.page?.totalPages ?? 1;
-          if (page + 1 >= totalPages) break;
-        }
-        log.debug('ticketmaster events fetched', { key, count: events.length });
+        const params = {
+          latlong: `${point.lat},${point.lng}`,
+          radius: radiusMiles,
+          unit: 'miles',
+          size: PAGE_SIZE,
+          sort: 'date,asc'
+        };
+        // The first page tells us how many there are; the rest fetch in parallel.
+        const first = await fetchPage({ ...params, page: 0 });
+        const totalPages = Math.min(MAX_PAGES, first.data.page?.totalPages ?? 1);
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, i) => fetchPage({ ...params, page: i + 1 }))
+        );
+        const events = [first, ...rest]
+          .flatMap((res) => res.data._embedded?.events || [])
+          .filter(isConcert)
+          .map(normalizeEvent);
+        log.debug('ticketmaster events fetched', { key, count: events.length, pages: totalPages });
         return dedupe(events);
       });
     },

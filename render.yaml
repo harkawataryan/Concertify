@@ -1,6 +1,8 @@
-# Render blueprint: one web service running the Dockerfile at the repo root.
-# RENDER_EXTERNAL_URL is injected by Render and used for the OAuth callback
-# and frontend URL, so only the three API credentials need to be entered.
+# Render blueprint: one web service running the Dockerfile at the repo root,
+# plus a free Key Value (Redis) instance so caches survive the free tier's
+# spin-downs. RENDER_EXTERNAL_URL is injected by Render and used for the
+# OAuth callback and frontend URL, so only the three API credentials need
+# to be entered.
 services:
   - type: web
     name: concertify
@@ -19,3 +21,13 @@ services:
         generateValue: true
       - key: NODE_ENV
         value: production
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: concertify-cache
+          property: connectionString
+
+  - type: keyvalue
+    name: concertify-cache
+    plan: free
+    ipAllowList: [] # internal connections only

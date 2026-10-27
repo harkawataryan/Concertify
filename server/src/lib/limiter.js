@@ -41,31 +41,40 @@ export class ConcurrencyGate {
   constructor(max) {
     this.max = max;
     this.active = 0;
-    this.queue = [];
+    this.queue = []; // kept sorted by priority; lower number runs first
   }
 
-  async acquire() {
+  async acquire(priority = 0) {
     if (this.active < this.max) {
       this.active += 1;
       return;
     }
-    await new Promise((resolve) => this.queue.push(resolve));
+    await new Promise((resolve) => {
+      const idx = this.queue.findIndex((w) => w.priority > priority);
+      const waiter = { priority, resolve };
+      if (idx === -1) this.queue.push(waiter);
+      else this.queue.splice(idx, 0, waiter);
+    });
     this.active += 1;
   }
 
   release() {
     this.active -= 1;
     const next = this.queue.shift();
-    if (next) next();
+    if (next) next.resolve();
   }
 }
 
-/** Wraps an async function so every call waits for both limiters. */
+/**
+ * Wraps an async function so every call waits for both limiters. Priority
+ * orders waiting calls: user-facing fetches pass 0 (default) and background
+ * cache warming passes a higher number so it never delays a page load.
+ */
 export function limited({ ratePerSecond, maxConcurrency, burst, now, sleep }) {
   const bucket = new TokenBucket({ ratePerSecond, burst, now, sleep });
   const gate = new ConcurrencyGate(maxConcurrency);
-  return async function run(fn) {
-    await gate.acquire();
+  return async function run(fn, { priority = 0 } = {}) {
+    await gate.acquire(priority);
     try {
       await bucket.take();
       return await fn();

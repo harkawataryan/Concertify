@@ -8,6 +8,17 @@ import { TIME_RANGES } from '../services/spotify.js';
 
 const FEEDBACK_TTL_SEC = 30 * 24 * 3600;
 const MAX_RADIUS_MI = 150;
+// How long a request waits for cold genre lookups before ranking with what it has.
+const ENRICH_BUDGET_MS = 2500;
+
+/**
+ * Loads the user's top artists with genres filled in. Called at login to
+ * warm the cache (no budget) and per request (with a budget).
+ */
+export function loadListeningProfile({ spotify, ticketmaster }, { accessToken, userId }, opts) {
+  return spotify.getTopArtistsAllRanges(accessToken, { userId })
+    .then((ranges) => enrichGenres(ranges, ticketmaster, opts));
+}
 
 export function apiRouter({ spotify, ticketmaster, cache }) {
   const router = express.Router();
@@ -65,8 +76,8 @@ export function apiRouter({ spotify, ticketmaster, cache }) {
       const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
 
       const [topByRange, feedback, events] = await Promise.all([
-        spotify.getTopArtistsAllRanges(req.user.accessToken, { userId: req.user.id })
-          .then((ranges) => enrichGenres(ranges, ticketmaster)),
+        loadListeningProfile({ spotify, ticketmaster }, { accessToken: req.user.accessToken, userId: req.user.id },
+          { budgetMs: ENRICH_BUDGET_MS }),
         loadFeedback(req.user.id),
         ticketmaster.eventsNear(origin, { radiusMiles })
       ]);
@@ -74,21 +85,17 @@ export function apiRouter({ spotify, ticketmaster, cache }) {
       const profile = buildTasteProfile(topByRange, feedback);
       const likedArtists = new Set(Object.entries(feedback.artists).filter(([, s]) => s > 0).map(([id]) => id));
 
-      // Most Ticketmaster performers already carry their Spotify id, and the
-      // profile is keyed by id, so no Spotify call is needed for those. Only
-      // unlinked performers cost a (cached) search.
-      const resolveArtist = async (attraction) => {
-        if (attraction.spotifyId) {
-          return {
-            id: attraction.spotifyId,
-            name: attraction.name,
-            genres: attraction.genres,
-            image: null,
-            url: `https://open.spotify.com/artist/${attraction.spotifyId}`
-          };
-        }
-        return spotify.findArtistByName(req.user.accessToken, attraction.name).catch(() => null);
-      };
+      // No Spotify calls on the ranking path. Two thirds of performers carry a
+      // Spotify id from Ticketmaster, which is what the profile is keyed by;
+      // the rest match by name. Spotify no longer returns genres, so a search
+      // would only add an image, and events have their own.
+      const resolveArtist = async (attraction) => ({
+        id: attraction.spotifyId || `tm:${attraction.id}`,
+        name: attraction.name,
+        genres: attraction.genres,
+        image: null,
+        url: attraction.spotifyId ? `https://open.spotify.com/artist/${attraction.spotifyId}` : null
+      });
 
       const result = await recommendEvents({ events, profile, origin, resolveArtist, limit, likedArtists });
       return res.json({ ...result, profile: { topGenres: profile.topGenres, artistCount: profile.artists.size }, radiusMiles });

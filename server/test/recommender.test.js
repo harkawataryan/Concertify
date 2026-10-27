@@ -64,6 +64,16 @@ describe('recommendEvents', () => {
     expect(recommendations[0].components.direct).toBe(1);
   });
 
+  it('headlines a co-bill with the performer the user listens to, not the first listed', async () => {
+    const ev = event('1', 'Mannequin Pussy', { genres: ['rock'] });
+    ev.attractions.push({ id: 'att-w', name: 'Wednesday', genres: ['rock', 'alternative rock'], spotifyId: 'some-other-id' });
+    // Resolver returns ids that don't match the profile, so the name fallback must identify Wednesday.
+    const resolve = async (a) => ({ id: `tm:${a.id}`, name: a.name, genres: a.genres });
+    const { recommendations } = await recommendEvents({ events: [ev], profile: buildTasteProfile({ short_term: [spotifyArtists.wednesday] }), resolveArtist: resolve, now: NOW });
+    expect(recommendations[0].artist.name).toBe('Wednesday');
+    expect(recommendations[0].components.direct).toBe(1);
+  });
+
   it('uses the Ticketmaster-provided Spotify id without a name lookup', async () => {
     const resolve = vi.fn(async (a) => (a.spotifyId ? spotifyArtists[a.spotifyId] : null));
     const events = [event('1', 'MITSKI (official)', { spotifyId: 'mitski' })];

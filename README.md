@@ -28,6 +28,7 @@ Explicit feedback adjusts the profile (a thumbs-down removes an artist and suppr
 - **Caching** ([`lib/cache.js`](server/src/lib/cache.js)): read-through cache with single-flight coalescing so concurrent misses share one upstream call. In-memory LRU by default; Redis when `REDIS_URL` is set so instances share a cache.
 - **Rate limiting** ([`lib/limiter.js`](server/src/lib/limiter.js)): token bucket plus a concurrency gate keep Ticketmaster traffic under its 5 req/s quota; `express-rate-limit` protects the API per user.
 - **Resilience** ([`lib/http.js`](server/src/lib/http.js)): retries with exponential backoff and full jitter, honoring `Retry-After` on 429s.
+- **Latency**: the listening profile is warmed in the background the moment a user logs in; a request waits at most 2.5s for cold genre lookups and ranks with what it has while the rest finish for next time; event pages fetch in parallel; the ranking path makes no Spotify calls at all.
 - **Auth** ([`middleware/auth.js`](server/src/middleware/auth.js)): Spotify Authorization Code flow with CSRF state, and transparent refresh-token rotation before the access token expires.
 - **Tests**: `vitest` unit tests for the ranker, taste profile, fuzzy matcher, cache, limiter and retry logic. CI runs them and builds the client on every push.
 
