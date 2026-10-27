@@ -10,6 +10,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.6",
+    "@grpc/proto-loader": "^0.7.15",
     "axios": "^1.7.2",
     "cookie-session": "^2.0.0",
     "cors": "^2.8.5",
