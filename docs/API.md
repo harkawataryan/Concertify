@@ -53,7 +53,13 @@ Response:
 {
   recommendations: Recommendation[];
   discover: { artist: Artist; affinity; reasons; event: Event }[];   // "new to you"
-  profile: { topGenres: string[]; artistCount: number; pending: number };   // pending > 0: genre lookups still running; refetch once in a few seconds for a fuller ranking
+  profile: {
+    topGenres: string[]; artistCount: number;
+    pending: number;                 // > 0: genre lookups still running; refetch once in a few seconds for a fuller ranking
+    weights: { direct; genre; proximity; soon };   // ranking weights used (sum to 1)
+    personalized: boolean;           // true once >= 5 ratings: weights were learned from this user's thumbs up/down
+    ratings: number;                 // how many ratings fed the learned weights
+  };
   radiusMiles: number;
   filters: { from, to, weekend, maxPrice, genres: string[], exclude: string[] };   // as applied
   meta: { scanned, candidates, scored, filteredOut };

@@ -68,7 +68,7 @@ export async function createApp(config) {
     legacyHeaders: false,
     keyGenerator: (req) => req.session?.userId || req.ip
   }));
-  app.use('/api', apiRouter({ spotify, ticketmaster, store }));
+  app.use('/api', apiRouter({ spotify, ticketmaster, store, cache }));
 
   // In production the built client is served from the same origin as the
   // API, so the session cookie is first-party and no CORS is involved.
