@@ -46,6 +46,10 @@ Open http://127.0.0.1:5173 (not `localhost`: Spotify only accepts the loopback I
 
 With Docker, `docker compose up` starts the server with Redis-backed caching; run the client separately.
 
+## Deploying
+
+The root `Dockerfile` builds the client and runs the server, which serves the client from the same origin so the session cookie is first-party. `render.yaml` describes a single free Render web service: create a Blueprint from this repo, enter `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` and `TICKETMASTER_API_KEY` when prompted, and add `https://<your-service>.onrender.com/auth/callback` as a redirect URI on the Spotify app. The public URL is picked up from `RENDER_EXTERNAL_URL`; on other hosts set `PUBLIC_URL` instead. Set `REDIS_URL` to share the cache across instances.
+
 ## API
 
 All `/api` routes require a session cookie from `/auth/login`.
