@@ -1,118 +1,128 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Navigate, Route, Routes, useLocation as useRoute, useNavigate } from 'react-router-dom';
+import { api } from './api.js';
+import { AppContext } from './hooks/useApp.js';
+import { useLocation } from './hooks/useLocation.js';
+import { ToastProvider, useToast } from './hooks/useToast.jsx';
+import { TopBar } from './components/TopBar.jsx';
+import { Landing } from './pages/Landing.jsx';
+import { ForYou } from './pages/ForYou.jsx';
+import { MapPage } from './pages/MapPage.jsx';
+import { Watchlist } from './pages/Watchlist.jsx';
+import { Plans } from './pages/Plans.jsx';
+import { PlanDetail } from './pages/PlanDetail.jsx';
+import { Taste } from './pages/Taste.jsx';
 
-const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:8088';
+function Shell() {
+  const [user, setUser] = useState(undefined); // undefined = checking, null = logged out
+  const [feedback, setFeedback] = useState({ artists: {}, genres: {} });
+  const [savedIds, setSavedIds] = useState(() => new Set());
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
+  const loc = useLocation(user?.location || null);
+  const toast = useToast();
+  const route = useRoute();
+  const navigate = useNavigate();
 
-export default function App() {
-  const [authed, setAuthed] = useState(false);
-  const [artists, setArtists] = useState([]);
-  const [concerts, setConcerts] = useState([]);
-  const [recs, setRecs] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    // scuffed: just call something and see if 401
-    axios.get(SERVER + '/api/me/top-artists', { withCredentials: true })
-      .then(r => { setAuthed(true); setArtists(r.data || []); })
-      .catch(() => setAuthed(false));
+  const refreshMe = useCallback(async () => {
+    try {
+      const me = await api.me();
+      setUser(me);
+      setUnreadAlerts(me.unreadAlerts || 0);
+      return me;
+    } catch {
+      setUser(null);
+      return null;
+    }
   }, []);
 
-  const login = () => {
-    window.location.href = SERVER + '/auth/login';
-  };
+  useEffect(() => {
+    refreshMe().then((me) => {
+      if (!me) return;
+      api.feedback().then(setFeedback).catch(() => {});
+      api.watchlist().then((w) => setSavedIds(new Set(w.artists.map((a) => a.id)))).catch(() => {});
+    });
+  }, [refreshMe]);
 
-  const loadArtists = async () => {
-    setLoading(true);
-    try {
-      const r = await axios.get(SERVER + '/api/me/top-artists', { withCredentials: true });
-      setArtists(r.data);
-    } finally { setLoading(false); }
-  };
+  // Spotify sends ?auth_error= back on a declined login.
+  useEffect(() => {
+    const params = new URLSearchParams(route.search);
+    const err = params.get('auth_error');
+    if (err) {
+      toast({ message: `Spotify login failed: ${err}`, error: true });
+      navigate(route.pathname, { replace: true });
+    }
+  }, [route.search]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadConcerts = async () => {
-    setLoading(true);
-    try {
-      const r = await axios.get(SERVER + '/api/concerts', { withCredentials: true });
-      setConcerts(r.data);
-    } finally { setLoading(false); }
-  };
+  const onAuthError = useCallback(() => setUser(null), []);
 
-  const loadRecs = async () => {
-    setLoading(true);
+  const sendFeedback = useCallback(async (type, id, signal) => {
     try {
-      const r = await axios.get(SERVER + '/api/recommendations', { withCredentials: true });
-      setRecs(r.data.recommendations || []);
-      setConcerts(r.data.concerts || []);
-    } finally { setLoading(false); }
-  };
+      setFeedback(await api.sendFeedback(type, id, signal));
+    } catch (err) {
+      toast({ message: err.message, error: true });
+      if (err.status === 401) onAuthError();
+    }
+  }, [toast, onAuthError]);
+
+  const toggleSave = useCallback(async (artist, save) => {
+    setSavedIds((s) => { const n = new Set(s); if (save) n.add(artist.id); else n.delete(artist.id); return n; });
+    try {
+      const w = save ? await api.addToWatchlist(artist) : await api.removeFromWatchlist(artist.id);
+      setSavedIds(new Set(w.artists.map((a) => a.id)));
+      toast({ message: save ? `${artist.name} added to your watchlist` : `${artist.name} removed`, ttl: 2500 });
+    } catch (err) {
+      setSavedIds((s) => { const n = new Set(s); if (save) n.delete(artist.id); else n.add(artist.id); return n; });
+      toast({ message: err.message, error: true });
+      if (err.status === 401) onAuthError();
+    }
+  }, [toast, onAuthError]);
+
+  const logout = useCallback(async () => {
+    await api.logout().catch(() => {});
+    setUser(null);
+    navigate('/');
+  }, [navigate]);
+
+  const value = useMemo(() => ({
+    user, loc, feedback, sendFeedback, savedIds, toggleSave, unreadAlerts, setUnreadAlerts, refreshMe, onAuthError, toast
+  }), [user, loc, feedback, sendFeedback, savedIds, toggleSave, unreadAlerts, refreshMe, onAuthError, toast]);
+
+  if (user === undefined) return <div className="page"><p className="muted">Loading…</p></div>;
 
   return (
-    <div className="wrap">
-      <h1>Concert Finder (Spotify → Ticketmaster)</h1>
-      {!authed ? (
-        <button onClick={login}>Log in with Spotify</button>
+    <AppContext.Provider value={value}>
+      <TopBar user={user} loc={loc} unreadAlerts={unreadAlerts} onLogout={logout} />
+      {user ? (
+        <Routes>
+          <Route path="/" element={<ForYou />} />
+          <Route path="/map" element={<MapPage />} />
+          <Route path="/watchlist" element={<Watchlist />} />
+          <Route path="/plans" element={<Plans />} />
+          <Route path="/plan/:code" element={<PlanDetail />} />
+          <Route path="/taste" element={<Taste />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       ) : (
-        <div className="actions">
-          <button onClick={loadArtists} disabled={loading}>Top 20 Artists</button>
-          <button onClick={loadConcerts} disabled={loading}>Upcoming Concerts</button>
-          <button onClick={loadRecs} disabled={loading}>Recommendations</button>
-        </div>
+        <Routes>
+          <Route path="/plan/:code" element={<RedirectToLogin />} />
+          <Route path="*" element={<Landing />} />
+        </Routes>
       )}
+    </AppContext.Provider>
+  );
+}
 
-      {artists?.length > 0 && (
-        <section>
-          <h2>Your Top Artists</h2>
-          <div className="grid artists">
-            {artists.map(a => (
-              <div key={a.id} className="card">
-                <img src={a.images?.[0]?.url} alt={a.name} />
-                <div className="card-body">
-                  <div className="title">{a.name}</div>
-                  <div className="sub">{(a.genres || []).slice(0,3).join(', ')}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+/** A shared plan link opened while logged out: log in, then come back here. */
+function RedirectToLogin() {
+  const route = useRoute();
+  useEffect(() => { window.location.assign(api.loginUrl(route.pathname)); }, [route.pathname]);
+  return <div className="page"><p className="muted">Redirecting to Spotify…</p></div>;
+}
 
-      {recs?.length > 0 && (
-        <section>
-          <h2>Suggested Artists</h2>
-          <div className="grid artists">
-            {recs.map(a => (
-              <div key={a.id} className="card">
-                {a.image && <img src={a.image} alt={a.name} />}
-                <div className="card-body">
-                  <div className="title">{a.name}</div>
-                  <div className="sub">{(a.genres || []).slice(0,3).join(', ')}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {concerts?.length > 0 && (
-        <section>
-          <h2>Upcoming Shows</h2>
-          <div className="grid shows">
-            {concerts.map((c, i) => (
-              <a key={c.eventId + i} className="card show" href={c.url} target="_blank" rel="noreferrer">
-                <div className="card-body">
-                  <div className="title">{c.name}</div>
-                  <div className="sub">{c.artist || '—'} • {c.date || 'TBA'}</div>
-                  <div className="sub">{[c.venue, c.city, c.country].filter(Boolean).join(' • ')}</div>
-                </div>
-              </a>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <footer>
-        <small>Heads up: APIs sometimes throttle. If it looks empty, try again.</small>
-      </footer>
-    </div>
+export default function App() {
+  return (
+    <ToastProvider>
+      <Shell />
+    </ToastProvider>
   );
 }
