@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-export const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:8088';
+export const SERVER = import.meta.env.VITE_SERVER_URL || 'http://127.0.0.1:8088';
 
 const http = axios.create({ baseURL: SERVER, withCredentials: true, timeout: 30_000 });
 

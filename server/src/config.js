@@ -21,12 +21,12 @@ export function loadConfig(env = process.env) {
   return {
     isProd,
     port: int('PORT', 8088),
-    frontendUrl: env.FRONTEND_URL || 'http://localhost:5173',
+    frontendUrl: env.FRONTEND_URL || 'http://127.0.0.1:5173',
     sessionSecret: isProd ? required('SESSION_SECRET') : env.SESSION_SECRET || 'dev-only-session-secret',
     spotify: {
       clientId: required('SPOTIFY_CLIENT_ID'),
       clientSecret: required('SPOTIFY_CLIENT_SECRET'),
-      redirectUri: env.SPOTIFY_REDIRECT_URI || 'http://localhost:8088/auth/callback'
+      redirectUri: env.SPOTIFY_REDIRECT_URI || 'http://127.0.0.1:8088/auth/callback'
     },
     ticketmaster: {
       apiKey: required('TICKETMASTER_API_KEY'),
