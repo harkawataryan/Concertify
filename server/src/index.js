@@ -14,6 +14,8 @@ import { metricsMiddleware, metricsHandler } from './lib/metrics.js';
 import { createSpotifyClient } from './services/spotify.js';
 import { createTicketmasterClient } from './services/ticketmaster.js';
 import { startAlertJob } from './services/alerts.js';
+import { createRankerClient } from './services/rankerClient.js';
+import { createWeightFitter } from './services/trainerClient.js';
 import { authRouter } from './routes/auth.js';
 import { apiRouter, loadListeningProfile } from './routes/api.js';
 
@@ -68,7 +70,11 @@ export async function createApp(config) {
     legacyHeaders: false,
     keyGenerator: (req) => req.session?.userId || req.ip
   }));
-  app.use('/api', apiRouter({ spotify, ticketmaster, store, cache }));
+  // Ranking math and model training run as separate services when their
+  // addresses are configured; otherwise the in-process reference code runs.
+  const ranker = createRankerClient({ addr: config.rankerAddr });
+  const fitWeights = createWeightFitter({ addr: config.trainerAddr });
+  app.use('/api', apiRouter({ spotify, ticketmaster, store, cache, ranker, fitWeights }));
 
   // In production the built client is served from the same origin as the
   // API, so the session cookie is first-party and no CORS is involved.

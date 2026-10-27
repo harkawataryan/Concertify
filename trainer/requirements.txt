@@ -1,0 +1,7 @@
+# Install torch from the CPU index to avoid the multi-GB CUDA wheels:
+#   pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+grpcio>=1.60
+grpcio-tools>=1.60
+numpy>=1.26
+torch>=2.2
+pytest>=8

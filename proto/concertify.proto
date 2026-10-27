@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package concertify;
+
+option go_package = "github.com/harkawataryan/concertify/ranker/pb";
+
+// Ranker scores candidate shows against a listener's taste profile.
+// Retrieval (which shows to consider) happens upstream; this service does
+// the numeric work: component scores, weighted affinity, diversity
+// re-ranking and group aggregation.
+service Ranker {
+  rpc Rank(RankRequest) returns (RankResponse);
+  rpc RankGroup(RankGroupRequest) returns (RankGroupResponse);
+}
+
+// Trainer fits per-user ranking weights from labeled feedback.
+service Trainer {
+  rpc Train(TrainRequest) returns (TrainResponse);
+}
+
+message Profile {
+  map<string, double> genre_exact = 1;   // "indie rock" -> weight
+  map<string, double> genre_tokens = 2;  // "indie" -> weight
+}
+
+message Weights {
+  double direct = 1;
+  double genre = 2;
+  double proximity = 3;
+  double soon = 4;
+}
+
+message Candidate {
+  string id = 1;                       // event id
+  string artist_id = 2;                // headline performer, for grouping
+  double direct = 3;                   // listener's weight for the performer, 0..1 (single-user rank)
+  repeated string genres = 4;          // Ticketmaster + Spotify labels, lowercase
+  double distance_mi = 5;              // -1 when unknown
+  double days_out = 6;                 // -1 when unknown
+  bool liked = 7;                      // watchlisted or thumbs-up: small boost
+  map<string, double> direct_by_member = 8;  // group rank: member id -> direct weight
+}
+
+message Components {
+  double direct = 1;
+  double genre = 2;
+  double proximity = 3;
+  double soon = 4;
+}
+
+message RankRequest {
+  repeated Candidate candidates = 1;
+  Profile profile = 2;
+  Weights weights = 3;
+  int32 limit = 4;
+  double diversity = 5;                // 0..1, MMR trade-off
+}
+
+message Scored {
+  string id = 1;
+  double affinity = 2;
+  Components components = 3;
+}
+
+message RankResponse {
+  repeated Scored results = 1;         // in rank order, at most `limit`
+  repeated Scored all = 2;             // every candidate scored, unordered (for discovery rows)
+}
+
+message Member {
+  string id = 1;
+  Profile profile = 2;
+}
+
+message RankGroupRequest {
+  repeated Candidate candidates = 1;
+  repeated Member members = 2;
+  Weights weights = 3;
+  int32 limit = 4;
+  double mean_weight = 5;              // default 0.7
+  double min_weight = 6;               // default 0.3 (least misery)
+}
+
+message MemberScore {
+  string member_id = 1;
+  double affinity = 2;
+}
+
+message GroupScored {
+  string id = 1;
+  double group_score = 2;
+  repeated MemberScore per_member = 3; // sorted desc
+  Components components = 4;           // from the highest-scoring member
+}
+
+message RankGroupResponse {
+  repeated GroupScored results = 1;
+}
+
+message Example {
+  Components features = 1;
+  int32 label = 2;                     // 1 liked, 0 disliked
+}
+
+message TrainRequest {
+  repeated Example examples = 1;
+  Weights prior = 2;
+  double l2 = 3;                       // regularization toward prior; default 0.1
+}
+
+message TrainResponse {
+  Weights weights = 1;                 // normalized to sum to 1
+  bool personalized = 2;               // false when too few examples; weights == prior
+  int32 examples = 3;
+  double loss = 4;                     // final training log-loss
+}

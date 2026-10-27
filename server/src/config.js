@@ -42,6 +42,9 @@ export function loadConfig(env = process.env) {
     },
     redisUrl: env.REDIS_URL || null,
     alertIntervalMs: int('ALERT_INTERVAL_MINUTES', 360) * 60 * 1000,
+    // gRPC sidecars; unset means in-process fallbacks.
+    rankerAddr: env.RANKER_ADDR || null,
+    trainerAddr: env.TRAINER_ADDR || null,
     cache: {
       maxEntries: int('CACHE_MAX_ENTRIES', 5000)
     },
