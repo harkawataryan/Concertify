@@ -35,6 +35,8 @@ function locParams(loc) {
 
 export const api = {
   loginUrl: (returnTo) => `${SERVER}/auth/login${returnTo ? `?return=${encodeURIComponent(returnTo)}` : ''}`,
+  requestAccessUrl: () => `${SERVER}/auth/request-access`,
+  accessMode: () => http.get('/auth/access-mode').then((r) => r.data),
   logout: () => call(http.post('/auth/logout')),
 
   me: () => call(http.get('/api/me')),

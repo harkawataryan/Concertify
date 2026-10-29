@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Icon } from '../components/Icon.jsx';
 import { RingsBackdrop } from '../components/Logo.jsx';
@@ -18,6 +18,13 @@ const CALLOUTS = [
 ];
 
 export function Landing() {
+  const [gated, setGated] = useState(null);
+  const [accessError, setAccessError] = useState(null);
+  useEffect(() => {
+    api.accessMode().then((m) => setGated(Boolean(m.gated))).catch(() => setGated(false));
+    const err = new URLSearchParams(window.location.search).get('access_error');
+    if (err) { setAccessError(err); window.history.replaceState({}, '', '/'); }
+  }, []);
   return (
     <main className="landing">
       <section className="landing-hero">
@@ -28,10 +35,24 @@ export function Landing() {
           Concertify reads your top artists across the last month, six months and all time, then scores every upcoming
           concert within your radius against that profile. Nothing is written to your Spotify account.
         </p>
-        <div className="row">
-          <a className="btn btn-primary btn-lg" href={api.loginUrl()}>Continue with Spotify</a>
-          <span className="faint small">Read-only access to your top artists.</span>
-        </div>
+        {gated ? (
+          <form className="access-form" method="get" action={api.requestAccessUrl()}>
+            <div className="row">
+              <input className="input" type="email" name="email" required placeholder="Email on your Spotify account" aria-label="Email on your Spotify account" />
+              <button className="btn btn-primary btn-lg" type="submit">Continue with Spotify</button>
+            </div>
+            <span className="faint small">
+              Spotify lets this app have five listed accounts at a time. Enter the email on your Spotify account and
+              you'll be added before login, reusing the oldest slot if all five are taken. Read-only access to your top artists.
+            </span>
+            {accessError && <span className="small" style={{ color: 'var(--danger, #d33)' }}>{accessError}</span>}
+          </form>
+        ) : (
+          <div className="row">
+            <a className="btn btn-primary btn-lg" href={api.loginUrl()}>Continue with Spotify</a>
+            <span className="faint small">Read-only access to your top artists.</span>
+          </div>
+        )}
       </section>
 
       <section className="how">

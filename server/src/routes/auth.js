@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { log } from '../lib/logger.js';
+import { allowlistConfigured, ensureAccess } from '../lib/spotifyAllowlist.js';
 
 const SCOPES = ['user-top-read'];
 
@@ -15,6 +16,39 @@ export function authRouter({ spotify, frontendUrl, onLogin = () => {} }) {
     const back = typeof req.query.return === 'string' && /^\/(?!\/)/.test(req.query.return) ? req.query.return : null;
     req.session.returnTo = back;
     res.redirect(spotify.authorizeUrl({ state, scopes: SCOPES }));
+  });
+
+  // Spotify's Development Mode only lets five listed accounts log in. When
+  // the dashboard cookie is configured, a visitor gives the email on their
+  // Spotify account, we add it (evicting the longest-listed one if the list is
+  // full) and then send them into the normal login.
+  const recentRequests = []; // timestamps, for a small global rate limit
+  router.get('/access-mode', (_req, res) => res.json({ gated: allowlistConfigured() }));
+
+  router.get('/request-access', async (req, res) => {
+    const email = typeof req.query.email === 'string' ? req.query.email.trim() : '';
+    const back = typeof req.query.return === 'string' && /^\/(?!\/)/.test(req.query.return) ? req.query.return : '';
+    const loginUrl = `/auth/login${back ? `?return=${encodeURIComponent(back)}` : ''}`;
+    if (!allowlistConfigured()) return res.redirect(loginUrl);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.redirect(`${frontendUrl}/?access_error=${encodeURIComponent('Enter the email on your Spotify account.')}`);
+    }
+    const now = Date.now();
+    while (recentRequests.length && recentRequests[0] < now - 60 * 60 * 1000) recentRequests.shift();
+    if (recentRequests.length >= 20) {
+      return res.redirect(`${frontendUrl}/?access_error=${encodeURIComponent('Too many access requests right now, try again in a bit.')}`);
+    }
+    recentRequests.push(now);
+    try {
+      const result = await ensureAccess(email, req.query.name?.toString().slice(0, 60) || 'Concertify visitor');
+      log.info('allowlist updated', { email, ...result });
+      // Give the dashboard a moment to propagate before Spotify checks the list.
+      if (result.added) await new Promise((r) => setTimeout(r, 1500));
+      return res.redirect(loginUrl);
+    } catch (err) {
+      log.warn('allowlist update failed', { email, err: err.message });
+      return res.redirect(`${frontendUrl}/?access_error=${encodeURIComponent("Couldn't add you to the Spotify allowlist right now. Email harkawat.aryan@gmail.com and I'll add you by hand.")}`);
+    }
   });
 
   router.get('/callback', async (req, res, next) => {

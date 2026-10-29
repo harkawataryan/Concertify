@@ -202,6 +202,8 @@ body { background-image: radial-gradient(900px 420px at 72% -120px, var(--accent
 .landing-hero h1 em { font-style: normal; color: var(--accent); }
 .landing-hero p { color: var(--text-muted); font-size: var(--text-lg); line-height: 1.55; max-width: 560px; }
 .landing-hero .row { margin-top: var(--space-2); }
+.access-form { display: flex; flex-direction: column; gap: var(--space-2); max-width: 560px; }
+.access-form .input { flex: 1; min-width: 240px; padding: 12px 14px; font-size: var(--text-md); }
 .hero-art { position: absolute; top: -140px; right: -420px; width: 900px; height: 900px; color: var(--accent); pointer-events: none; z-index: -1; }
 .how { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: var(--space-8); align-items: center; padding: var(--space-8); border: 1px solid var(--border); border-radius: 16px; background: linear-gradient(180deg, var(--surface-1), color-mix(in srgb, var(--surface-1) 70%, var(--bg))); }
 .how-text h2 { font-size: var(--text-xl); letter-spacing: -0.02em; margin-bottom: var(--space-3); }

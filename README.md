@@ -42,6 +42,10 @@ The ranking math runs in the Go service (`ranker/`); the Node code has the same 
 - Spotify login uses the authorization code flow with refresh token rotation handled in middleware.
 - Tests: `vitest` for the API (72), `go test` for the ranker, `pytest` for the trainer. CI runs all of them and builds the client.
 
+## Spotify's five-user limit
+
+Since February 2026 a Development Mode app can only have five listed Spotify accounts, so a stranger can't log in unless the owner adds their email on the developer dashboard first. The dashboard has no public API, but its own front end logs in with the owner's session cookie and calls an internal JSON API, so `server/src/lib/spotifyAllowlist.js` does the same. Set `SPOTIFY_DASHBOARD_SP_DC` to the owner's `sp_dc` cookie (DevTools, Application, Cookies on developer.spotify.com) and the landing page asks visitors for the email on their Spotify account, adds it before sending them to login, and evicts the longest-listed entry when all five slots are taken. Without the variable the landing page shows the plain login button. The cookie lasts about a year; when it expires the form falls back to asking people to email the owner.
+
 ## Running it
 
 You need Node 20+, a [Spotify app](https://developer.spotify.com/dashboard) with `http://127.0.0.1:8088/auth/callback` as a redirect URI (Spotify won't accept `localhost`), and a [Ticketmaster API key](https://developer.ticketmaster.com).
