@@ -13,6 +13,8 @@ import { toExample } from '../services/learning.js';
 import { TIME_RANGES } from '../services/spotify.js';
 
 const MAX_RADIUS_MI = 150;
+const ANYWHERE = 'any';
+const ANYWHERE_ARTISTS = 40; // artists looked up when location is ignored
 // How long a request waits for cold genre lookups before ranking with what it has.
 const ENRICH_BUDGET_MS = 2500;
 const MAX_PLAN_MEMBERS = 12;
@@ -49,8 +51,17 @@ function shareCode() {
   return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
 }
 
+/** A radius in miles, or 'any' to ignore location altogether. */
 function parseRadius(value) {
+  if (value === ANYWHERE) return ANYWHERE;
   return Math.min(MAX_RADIUS_MI, Math.max(5, Number(value) || 50));
+}
+
+function withDistances(items, origin) {
+  return items.map((r) => ({
+    ...r,
+    distanceMi: origin && r.event?.venue?.lat != null ? Math.round(haversineMiles(origin, r.event.venue)) : null
+  }));
 }
 
 function slimArtistForStore(a) {
@@ -96,6 +107,24 @@ export function apiRouter({ spotify, ticketmaster, store, cache, ranker = null, 
       return events.find((e) => !e.date || e.date >= today) || null;
     }));
     return { artists: artists.map((a, i) => ({ ...a, nextShow: nextShows[i] })) };
+  }
+
+  /**
+   * "Anywhere" mode: instead of every show within a radius, the candidate
+   * pool is every upcoming show for the artists in the profile (most
+   * listened first, up to ANYWHERE_ARTISTS). Lookups are cached per artist.
+   */
+  async function eventsForArtists(names) {
+    const seen = new Set();
+    const unique = names.filter((n) => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase())).slice(0, ANYWHERE_ARTISTS);
+    const perArtist = await Promise.all(unique.map((n) => ticketmaster.eventsForArtist(n)));
+    const byId = new Map();
+    for (const e of perArtist.flat()) if (!byId.has(e.id)) byId.set(e.id, e);
+    return [...byId.values()];
+  }
+
+  function profileArtistNames(profile) {
+    return [...profile.artists.values()].sort((a, b) => b.weight - a.weight).map((a) => a.name);
   }
 
   function alertsResponse(user) {
@@ -166,17 +195,19 @@ export function apiRouter({ spotify, ticketmaster, store, cache, ranker = null, 
     const origin = parseLatLng(req.query.lat, req.query.lng);
     if (!origin) return res.status(400).json({ error: 'lat and lng query params are required' });
     const radiusMiles = parseRadius(req.query.radius);
+    const anywhere = radiusMiles === ANYWHERE;
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
     const filters = parseFilters(req.query);
 
-    const [topByRange, user, allEvents] = await Promise.all([
+    const [topByRange, user, nearby] = await Promise.all([
       loadListeningProfile(deps, req.user, { budgetMs: ENRICH_BUDGET_MS }),
       store.getUser(req.user.id),
-      ticketmaster.eventsNear(origin, { radiusMiles })
+      anywhere ? null : ticketmaster.eventsNear(origin, { radiusMiles })
     ]);
+    const profile = buildTasteProfile(topByRange, user.feedback);
+    const allEvents = anywhere ? await eventsForArtists(profileArtistNames(profile)) : nearby;
 
     const { events, filteredOut } = applyFilters(allEvents, filters);
-    const profile = buildTasteProfile(topByRange, user.feedback);
     const watchlistIds = new Set(Object.keys(user.watchlist));
     const likedArtists = new Set([
       ...watchlistIds,
@@ -184,7 +215,12 @@ export function apiRouter({ spotify, ticketmaster, store, cache, ranker = null, 
     ]);
 
     const learned = await fitWeights(user.examples);
-    const result = await recommendEvents({ events, profile, origin, resolveArtist, limit, likedArtists, weights: learned.weights, ranker });
+    // With no origin the proximity term is a constant, so distance can't
+    // move the ranking; it's added back afterwards for display only.
+    const result = await recommendEvents({
+      events, profile, origin: anywhere ? null : origin, resolveArtist, limit, likedArtists, weights: learned.weights, ranker
+    });
+    if (anywhere) result.recommendations = withDistances(result.recommendations, origin);
 
     const served = (await cache.get(servedKey(req.user.id))) || {};
     for (const rec of result.recommendations) if (rec.artist) served[rec.artist.id] = rec.components;
@@ -202,7 +238,8 @@ export function apiRouter({ spotify, ticketmaster, store, cache, ranker = null, 
         personalized: learned.personalized,
         ratings: learned.examples
       },
-      radiusMiles,
+      radiusMiles: anywhere ? null : radiusMiles,
+      anywhere,
       filters,
       meta: { ...result.meta, filteredOut },
       availableGenres: availableGenres(allEvents)
@@ -348,13 +385,18 @@ export function apiRouter({ spotify, ticketmaster, store, cache, ranker = null, 
     const origin = parseLatLng(req.query.lat, req.query.lng);
     if (!origin) return res.status(400).json({ error: 'lat and lng query params are required' });
     const radiusMiles = parseRadius(req.query.radius);
+    const anywhere = radiusMiles === ANYWHERE;
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
 
+    const withProfiles = publicPlanWithProfiles(plan);
     const [events, user] = await Promise.all([
-      ticketmaster.eventsNear(origin, { radiusMiles }),
+      anywhere
+        ? eventsForArtists(withProfiles.members.flatMap((m) => profileArtistNames(buildTasteProfile(m.topByRange || {})).slice(0, 15)))
+        : ticketmaster.eventsNear(origin, { radiusMiles }),
       store.getUser(req.user.id)
     ]);
-    const ranked = await rankForGroup({ plan: publicPlanWithProfiles(plan), events, origin, resolveArtist, limit, ranker });
+    let ranked = await rankForGroup({ plan: withProfiles, events, origin: anywhere ? null : origin, resolveArtist, limit, ranker });
+    if (anywhere) ranked = withDistances(ranked, origin);
     const watchlistIds = new Set(Object.keys(user.watchlist));
     return res.json({
       plan: publicPlan(plan),

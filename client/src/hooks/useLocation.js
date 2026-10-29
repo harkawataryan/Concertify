@@ -14,7 +14,12 @@ export const PRESET_CITIES = [
   { name: 'Atlanta, GA', lat: 33.749, lng: -84.388 }
 ];
 
-export const RADII = [25, 50, 100, 150];
+export const ANYWHERE = 'any';
+export const RADII = [25, 50, 100, 150, ANYWHERE];
+export const isAnywhere = (radius) => radius === ANYWHERE;
+export const radiusLabel = (radius) => (isAnywhere(radius) ? 'Anywhere' : `${radius} mi`);
+/** The next step up from a radius; the widest one opens up to anywhere. */
+export const widerRadius = (radius) => (isAnywhere(radius) || radius >= 150 ? ANYWHERE : Math.min(150, radius * 2));
 const STORAGE_KEY = 'concertify.location';
 
 function readSaved() {

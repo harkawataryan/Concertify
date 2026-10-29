@@ -8,7 +8,7 @@ Stack: React + Vite on the front end, Node/Express API, a Go gRPC service for th
 
 ## What it does
 
-- Ranks shows within a radius of you, with filters for dates, weekends only, max ticket price and genre.
+- Ranks shows within a radius of you, or anywhere at all, with filters for dates, weekends only, max ticket price and genre. Anywhere mode looks up every upcoming show for your top 40 artists instead of searching an area, and distance stops counting toward the score.
 - Group plans: make a plan, send the link, whoever joins gets their taste merged into one ranking. Uses the average match with a penalty for shows someone in the group would hate.
 - Watchlist and alerts: save artists, and a background job checks every few hours for new shows near you.
 - Map view, a page showing your genre profile over different time windows, calendar export, and a Prometheus `/metrics` endpoint.
@@ -40,7 +40,7 @@ The ranking math runs in the Go service (`ranker/`); the Node code has the same 
 - Retries use exponential backoff with jitter and respect `Retry-After`.
 - Cold start was the slow part: the profile gets warmed in the background as soon as you log in, genre lookups are capped at 2.5s per request with the rest finishing afterwards, and event pages are fetched in parallel. Cold recommendations went from ~9s to ~2.5s.
 - Spotify login uses the authorization code flow with refresh token rotation handled in middleware.
-- Tests: `vitest` for the API (72), `go test` for the ranker, `pytest` for the trainer. CI runs all of them and builds the client.
+- Tests: `vitest` for the API (81), `go test` for the ranker, `pytest` for the trainer. CI runs all of them and builds the client.
 
 ## Spotify's five-user limit
 
@@ -74,7 +74,7 @@ Everything under `/api` needs the session cookie from `/auth/login`.
 | `GET /api/me` | current user, saved location, unread alerts |
 | `GET /api/me/top-artists?time_range=` | top artists for a window |
 | `GET /api/me/taste` | genre profile and top artists per window |
-| `GET /api/recommendations?lat&lng&radius&from&to&weekend&maxPrice&genres&exclude` | ranked shows, "new to you" artists, score breakdowns |
+| `GET /api/recommendations?lat&lng&radius&from&to&weekend&maxPrice&genres&exclude` | ranked shows, "new to you" artists, score breakdowns. `radius=any` ignores location |
 | `GET /api/concerts?lat&lng` | shows anywhere for your top artists |
 | `GET/PUT/DELETE /api/watchlist[/:artistId]` | saved artists |
 | `GET /api/alerts`, `POST /api/alerts/read`, `POST /api/alerts/refresh` | alerts inbox |

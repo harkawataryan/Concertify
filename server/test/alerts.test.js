@@ -29,6 +29,17 @@ describe('checkAlertsForUser', () => {
     expect(user.alerts).toHaveLength(1);
   });
 
+  it('caps "anywhere" at 150 miles so a tour does not become a pile of alerts', async () => {
+    const ticketmaster = { eventsForArtist: vi.fn(async () => [
+      show('dallas', '2026-11-21', { lat: 32.78, lng: -96.8 }), // ~180 mi
+      show('sanantonio', '2026-11-22', { lat: 29.42, lng: -98.49 }), // ~75 mi
+      show('nyc', '2026-11-23', { lat: 40.71, lng: -74.0 })
+    ]) };
+    const user = userWith([{ id: 'mitski', name: 'Mitski' }], { name: 'Austin', ...AUSTIN, radius: 'any' });
+    expect(await checkAlertsForUser(user, { ticketmaster, now: NOW })).toBe(1);
+    expect(user.alerts.map((a) => a.event.id)).toEqual(['sanantonio']);
+  });
+
   it('does nothing without a saved location or watchlist', async () => {
     const ticketmaster = { eventsForArtist: vi.fn() };
     expect(await checkAlertsForUser(userWith([]), { ticketmaster, now: NOW })).toBe(0);

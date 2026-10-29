@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { Icon } from './Icon.jsx';
 import { Logo } from './Logo.jsx';
-import { PRESET_CITIES, RADII } from '../hooks/useLocation.js';
+import { PRESET_CITIES, RADII, isAnywhere, radiusLabel } from '../hooks/useLocation.js';
 import { initials } from '../lib/format.js';
 
 const NAV = [
@@ -31,7 +31,7 @@ function LocationMenu({ loc }) {
     <div className="menu-wrap" ref={ref}>
       <button type="button" className="pill" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
         <Icon name="location" size={14} />
-        <span>{location ? `${location.name} · ${location.radius} mi` : 'Set location'}</span>
+        <span>{!location ? 'Set location' : isAnywhere(location.radius) ? `Anywhere · from ${location.name}` : `${location.name} · ${location.radius} mi`}</span>
         <Icon name="chevron" size={14} />
       </button>
       {open && (
@@ -49,7 +49,7 @@ function LocationMenu({ loc }) {
           <div className="menu-label">Radius</div>
           <div className="segmented" style={{ margin: '0 10px 6px' }}>
             {RADII.map((r) => (
-              <button key={r} type="button" className={location?.radius === r ? 'is-active' : ''} onClick={() => setRadius(r)} disabled={!location}>{r} mi</button>
+              <button key={r} type="button" className={location?.radius === r ? 'is-active' : ''} onClick={() => setRadius(r)} disabled={!location}>{radiusLabel(r)}</button>
             ))}
           </div>
         </div>

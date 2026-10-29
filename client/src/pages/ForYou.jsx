@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../hooks/useApp.js';
 import { useFetch } from '../hooks/useFetch.js';
+import { isAnywhere, widerRadius } from '../hooks/useLocation.js';
 import { Filters, EMPTY_FILTERS } from '../components/Filters.jsx';
 import { ShowCard } from '../components/ShowCard.jsx';
 import { DetailDrawer } from '../components/DetailDrawer.jsx';
@@ -56,7 +57,7 @@ export function ForYou() {
           <span className="eyebrow">Ranked for {location.name}</span>
           <h1>For you</h1>
           <p>
-            {data ? <>Scanned {data.meta.scanned} shows within {data.radiusMiles} mi against {data.profile.artistCount} artists you listen to.{data.profile.pending > 0 && ' Still learning your taste; this list will fill in.'}{data.profile.personalized && ` Weights tuned from your ${data.profile.ratings} ratings.`}</> : <>Shows within {location.radius} mi of {location.name}.</>}
+            {data ? <>Scanned {data.meta.scanned} shows {data.anywhere ? 'anywhere' : `within ${data.radiusMiles} mi`} against {data.profile.artistCount} artists you listen to.{data.profile.pending > 0 && ' Still learning your taste; this list will fill in.'}{data.profile.personalized && ` Weights tuned from your ${data.profile.ratings} ratings.`}</> : isAnywhere(location.radius) ? <>Shows anywhere for the artists you listen to.</> : <>Shows within {location.radius} mi of {location.name}.</>}
           </p>
         </div>
         <div className="segmented" role="tablist" aria-label="View">
@@ -72,8 +73,8 @@ export function ForYou() {
           : recs.length === 0 ? (
             <EmptyState
               title="Nothing matched"
-              body={data?.meta.filteredOut ? `${data.meta.filteredOut} shows were hidden by your filters.` : 'No shows in this area line up with your listening yet. Try a bigger radius.'}
-              action={data?.meta.filteredOut ? <button type="button" className="btn" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</button> : <button type="button" className="btn" onClick={() => setRadius(Math.min(150, location.radius * 2))}>Widen radius</button>}
+              body={data?.meta.filteredOut ? `${data.meta.filteredOut} shows were hidden by your filters.` : isAnywhere(location.radius) ? 'None of the artists you listen to have shows listed right now.' : 'No shows in this area line up with your listening yet. Try a bigger radius.'}
+              action={data?.meta.filteredOut ? <button type="button" className="btn" onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</button> : isAnywhere(location.radius) ? null : <button type="button" className="btn" onClick={() => setRadius(widerRadius(location.radius))}>{location.radius >= 150 ? 'Search anywhere' : 'Widen radius'}</button>}
             />
           ) : view === 'map' ? (
             <MapView items={recs} onOpen={(r) => setOpen(r.event.id)} />

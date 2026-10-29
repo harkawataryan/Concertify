@@ -48,6 +48,8 @@ type Recommendation = {
 ## Recommendations
 `GET /api/recommendations?lat&lng&radius=50&limit=20&from=YYYY-MM-DD&to=YYYY-MM-DD&weekend=1&maxPrice=80&genres=rock,pop&exclude=country`
 
+`radius` is miles (5 to 150) or `any`. With `any` the candidate pool is every upcoming show for the user's top 40 artists rather than a radius search, the proximity term is held constant so distance doesn't affect ranking, and `radiusMiles` comes back `null` with `anywhere: true`. `distanceMi` is still filled in from `lat`/`lng`. The same value works for `PUT /api/me/location` (alerts then use 150 miles) and plan recommendations.
+
 Response:
 ```ts
 {
@@ -60,7 +62,8 @@ Response:
     personalized: boolean;           // true once >= 5 ratings: weights were learned from this user's thumbs up/down
     ratings: number;                 // how many ratings fed the learned weights
   };
-  radiusMiles: number;
+  radiusMiles: number | null;  // null when radius=any
+  anywhere: boolean;
   filters: { from, to, weekend, maxPrice, genres: string[], exclude: string[] };   // as applied
   meta: { scanned, candidates, scored, filteredOut };
   availableGenres: { genre: string; count: number }[];   // labels present in the scanned events, for filter chips

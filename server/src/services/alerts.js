@@ -3,6 +3,14 @@ import { log } from '../lib/logger.js';
 import { alertsCreated } from '../lib/metrics.js';
 
 const MAX_ALERTS = 100;
+// Someone browsing "anywhere" still shouldn't get an alert for every date of
+// a tour, so alerts stay within the widest ordinary radius.
+const ANYWHERE_ALERT_RADIUS_MI = 150;
+
+function alertRadius(radius) {
+  if (radius === 'any') return ANYWHERE_ALERT_RADIUS_MI;
+  return Number(radius) || 50;
+}
 
 /**
  * Checks one user's watchlist for newly listed shows within their saved
@@ -22,7 +30,7 @@ export async function checkAlertsForUser(user, { ticketmaster, now = Date.now(),
       if (event.date && event.date < today) continue;
       if (event.venue.lat == null) continue;
       const distanceMi = haversineMiles(user.location, event.venue);
-      if (distanceMi > (user.location.radius || 50)) continue;
+      if (distanceMi > alertRadius(user.location.radius)) continue;
       user.alertedEventIds[event.id] = today;
       created.push({
         id: event.id,

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useApp } from '../hooks/useApp.js';
 import { useFetch } from '../hooks/useFetch.js';
+import { isAnywhere } from '../hooks/useLocation.js';
 import { MapView } from '../components/MapView.jsx';
 import { DetailDrawer } from '../components/DetailDrawer.jsx';
 import { Skeleton } from '../components/Skeleton.jsx';
@@ -28,12 +29,12 @@ export function MapPage() {
         <div>
           <span className="eyebrow">Nearby</span>
           <h1>Map</h1>
-          <p>{recs.length ? `${recs.length} recommended shows within ${data.radiusMiles} mi. Larger, brighter markers are better matches.` : `Within ${location.radius} mi of ${location.name}.`}</p>
+          <p>{recs.length ? `${recs.length} recommended shows ${data.anywhere ? 'anywhere' : `within ${data.radiusMiles} mi`}. Larger, brighter markers are better matches.` : isAnywhere(location.radius) ? 'Shows anywhere for the artists you listen to.' : `Within ${location.radius} mi of ${location.name}.`}</p>
         </div>
       </div>
       {error ? <ErrorState error={error} onRetry={reload} />
         : loading && !data ? <Skeleton height="70vh" style={{ borderRadius: 12, minHeight: 420 }} />
-          : recs.length === 0 ? <EmptyState title="Nothing to plot" body="No shows in this area line up with your listening yet." />
+          : recs.length === 0 ? <EmptyState title="Nothing to plot" body={isAnywhere(location.radius) ? 'None of the artists you listen to have shows listed right now.' : 'No shows in this area line up with your listening yet.'} />
             : <MapView items={recs} center={[location.lat, location.lng]} onOpen={(r) => setOpen(r.event.id)} />}
       {openRec && <DetailDrawer rec={openRec} onClose={() => setOpen(null)} onToggleSave={toggleSave} />}
     </main>

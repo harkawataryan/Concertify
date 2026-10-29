@@ -1,5 +1,5 @@
 import React from 'react';
-import { RADII } from '../hooks/useLocation.js';
+import { RADII, radiusLabel } from '../hooks/useLocation.js';
 
 export const EMPTY_FILTERS = { from: '', to: '', weekend: false, maxPrice: '', genres: [], exclude: [] };
 
@@ -29,7 +29,7 @@ export function Filters({ filters, onChange, radius, onRadius, available = [], d
       </label>
       <label className="field">Radius
         <div className="segmented">
-          {RADII.map((r) => <button key={r} type="button" className={radius === r ? 'is-active' : ''} onClick={() => onRadius(r)} disabled={disabled}>{r} mi</button>)}
+          {RADII.map((r) => <button key={r} type="button" className={radius === r ? 'is-active' : ''} onClick={() => onRadius(r)} disabled={disabled}>{radiusLabel(r)}</button>)}
         </div>
       </label>
       <label className="toggle">
