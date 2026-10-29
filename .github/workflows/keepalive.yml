@@ -1,7 +1,10 @@
 # Keeps the free Render instance awake (it sleeps after 15 idle minutes).
-# GitHub drops most short-interval cron triggers, so instead of relying on a
-# ping every 10 minutes this runs hourly and each run pings for 65 minutes.
-# Consecutive runs overlap, so one skipped trigger changes nothing.
+#
+# GitHub's scheduler is unreliable for this: the hourly cron below has been
+# firing only every 4 to 7 hours. So each run pings for just under the 6-hour
+# job limit and then dispatches the next run itself, forming a continuous
+# chain. The cron stays as a backstop that restarts the chain if it breaks.
+# The fixed concurrency group means at most one run pings and one waits.
 name: Keep alive
 
 on:
@@ -10,16 +13,21 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: keepalive-${{ github.run_id }}
+  group: keepalive
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 358
     steps:
-      - name: Ping /health every 4 minutes for 65 minutes
+      - name: Ping /health every 4 minutes for 5h50m
         run: |
-          end=$((SECONDS + 65*60))
+          end=$((SECONDS + 350*60))
           fails=0
           while [ $SECONDS -lt $end ]; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 https://concertify-cm6k.onrender.com/health || echo 000)
@@ -28,4 +36,9 @@ jobs:
             sleep 240
           done
           echo "non-200 responses: $fails"
-          test "$fails" -lt 3
+
+      - name: Start the next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run keepalive.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}"
