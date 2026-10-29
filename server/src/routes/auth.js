@@ -30,6 +30,10 @@ export function authRouter({ spotify, frontendUrl, onLogin = () => {} }) {
     const back = typeof req.query.return === 'string' && /^\/(?!\/)/.test(req.query.return) ? req.query.return : '';
     const loginUrl = `/auth/login${back ? `?return=${encodeURIComponent(back)}` : ''}`;
     if (!allowlistConfigured()) return res.redirect(loginUrl);
+    // The app owner (and anyone else listed here) can always log in, so skip
+    // the allowlist for them. Comma-separated, case-insensitive.
+    const owners = (process.env.SPOTIFY_OWNER_EMAILS || 'harkawat.aryan@gmail.com').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+    if (owners.includes(email.toLowerCase())) return res.redirect(loginUrl);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.redirect(`${frontendUrl}/?access_error=${encodeURIComponent('Enter the email on your Spotify account.')}`);
     }
