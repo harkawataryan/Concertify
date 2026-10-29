@@ -20,6 +20,7 @@ const CALLOUTS = [
 export function Landing() {
   const [gated, setGated] = useState(null);
   const [accessError, setAccessError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
     api.accessMode().then((m) => setGated(Boolean(m.gated))).catch(() => setGated(false));
     const err = new URLSearchParams(window.location.search).get('access_error');
@@ -36,15 +37,12 @@ export function Landing() {
           concert within your radius against that profile. Nothing is written to your Spotify account.
         </p>
         {gated ? (
-          <form className="access-form" method="get" action={api.requestAccessUrl()}>
+          <form className="access-form" method="get" action={api.requestAccessUrl()} onSubmit={() => setSubmitting(true)}>
             <div className="row">
-              <input className="input" type="email" name="email" required placeholder="Email on your Spotify account" aria-label="Email on your Spotify account" />
-              <button className="btn btn-primary btn-lg" type="submit">Continue with Spotify</button>
+              <input className="input" type="email" name="email" required placeholder="Your Spotify email" aria-label="Your Spotify email" />
+              <button className="btn btn-primary btn-lg" type="submit" disabled={submitting}>{submitting ? 'One moment…' : 'Continue with Spotify'}</button>
             </div>
-            <span className="faint small">
-              Spotify lets this app have five listed accounts at a time. Enter the email on your Spotify account and
-              you'll be added before login, reusing the oldest slot if all five are taken. Read-only access to your top artists.
-            </span>
+            <span className="faint small">Enter the email on your Spotify account to get started. Read-only access to your top artists.</span>
             {accessError && <span className="small" style={{ color: 'var(--danger, #d33)' }}>{accessError}</span>}
           </form>
         ) : (

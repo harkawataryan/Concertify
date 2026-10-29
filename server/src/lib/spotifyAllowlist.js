@@ -110,10 +110,19 @@ export async function addUser(name, email) {
   return api('POST', '/users', { name, email, clientId: process.env.SPOTIFY_CLIENT_ID });
 }
 
-// Makes sure `email` can log in. If it's already listed, nothing changes. If
-// the list is full, the entry added longest ago is removed first.
-// Returns { added, evicted } for logging.
-export async function ensureAccess(email, name = 'Concertify visitor') {
+export async function isListed(email) {
+  const normalized = email.trim().toLowerCase();
+  const users = await listUsers();
+  return users.some((u) => (u.email || '').toLowerCase() === normalized);
+}
+
+// Spotify also caps additions at five per app per rolling 24 hours; the
+// dashboard answers 429 with this message when that's hit.
+export function isDailyCapError(err) {
+  return /429|more than 5 users/i.test(err?.message || '');
+}
+
+async function ensureAccessNow(email, name) {
   const normalized = email.trim().toLowerCase();
   const users = await listUsers();
   if (users.some((u) => (u.email || '').toLowerCase() === normalized)) return { added: false, evicted: null };
@@ -125,4 +134,15 @@ export async function ensureAccess(email, name = 'Concertify visitor') {
   }
   await addUser(name, normalized);
   return { added: true, evicted };
+}
+
+// Makes sure `email` can log in. If it's already listed, nothing changes. If
+// the list is full, the entry added longest ago is removed first. Calls are
+// serialized so two requests for the same email (a double-submitted form)
+// can't both try to add it. Returns { added, evicted } for logging.
+let queue = Promise.resolve();
+export function ensureAccess(email, name = 'Concertify visitor') {
+  const run = queue.then(() => ensureAccessNow(email, name));
+  queue = run.catch(() => {});
+  return run;
 }

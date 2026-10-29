@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { log } from '../lib/logger.js';
-import { allowlistConfigured, ensureAccess } from '../lib/spotifyAllowlist.js';
+import { allowlistConfigured, ensureAccess, isListed, isDailyCapError } from '../lib/spotifyAllowlist.js';
 
 const SCOPES = ['user-top-read'];
 
@@ -47,7 +47,12 @@ export function authRouter({ spotify, frontendUrl, onLogin = () => {} }) {
       return res.redirect(loginUrl);
     } catch (err) {
       log.warn('allowlist update failed', { email, err: err.message });
-      return res.redirect(`${frontendUrl}/?access_error=${encodeURIComponent("Couldn't add you to the Spotify allowlist right now. Email harkawat.aryan@gmail.com and I'll add you by hand.")}`);
+      // A duplicate submission can lose the race and still be fine.
+      if (await isListed(email).catch(() => false)) return res.redirect(loginUrl);
+      const msg = isDailyCapError(err)
+        ? "Spotify only lets us add a few new listeners a day and today's are used up. Try again tomorrow, or email harkawat.aryan@gmail.com and I'll get you in."
+        : "Couldn't get you set up right now. Email harkawat.aryan@gmail.com and I'll sort it out.";
+      return res.redirect(`${frontendUrl}/?access_error=${encodeURIComponent(msg)}`);
     }
   });
 

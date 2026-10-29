@@ -78,3 +78,27 @@ describe('spotifyAllowlist', () => {
     await expect(listUsers()).rejects.toThrow(/sp_dc cookie may have expired/);
   });
 });
+
+describe('spotifyAllowlist concurrency', () => {
+  it('serializes concurrent requests for the same email so only one add happens', async () => {
+    process.env.SPOTIFY_DASHBOARD_SP_DC = 'cookie';
+    process.env.SPOTIFY_CLIENT_ID = 'app123';
+    let users = [];
+    const posts = [];
+    const realFetch = global.fetch;
+    global.fetch = vi.fn(async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/oauth2/v2/auth')) return new Response('', { status: 303, headers: { location: 'https://developer.spotify.com/?code=C&state=x' } });
+      if (u.endsWith('/api/token')) return Response.json({ access_token: 't', expires_in: 3600 });
+      if (u.endsWith('/users') && (opts.method || 'GET') === 'GET') { await new Promise((r) => setTimeout(r, 20)); return Response.json({ users }); }
+      if (u.endsWith('/users') && opts.method === 'POST') { posts.push(opts.body); users.push({ ...JSON.parse(opts.body), id: 'id', createdAt: new Date().toISOString() }); return Response.json({}); }
+      return new Response('', { status: 404 });
+    });
+    vi.resetModules();
+    const { ensureAccess } = await import('../src/lib/spotifyAllowlist.js');
+    const results = await Promise.all([ensureAccess('dup@x.com'), ensureAccess('dup@x.com')]);
+    expect(posts.length).toBe(1);
+    expect(results.map((r) => r.added).sort()).toEqual([false, true]);
+    global.fetch = realFetch;
+  });
+});
