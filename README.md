@@ -40,7 +40,7 @@ The ranking math runs in the Go service (`ranker/`); the Node code has the same 
 - Retries use exponential backoff with jitter and respect `Retry-After`.
 - Cold start was the slow part: the profile gets warmed in the background as soon as you log in, genre lookups are capped at 2.5s per request with the rest finishing afterwards, and event pages are fetched in parallel. Cold recommendations went from ~9s to ~2.5s.
 - Spotify login uses the authorization code flow with refresh token rotation handled in middleware.
-- Tests: `vitest` for the API (81), `go test` for the ranker, `pytest` for the trainer. CI runs all of them and builds the client.
+- Tests: `vitest` for the API (84), `go test` for the ranker, `pytest` for the trainer. CI runs all of them and builds the client.
 
 ## Spotify's five-user limit
 
@@ -76,6 +76,7 @@ Everything under `/api` needs the session cookie from `/auth/login`.
 | `GET /api/me/taste` | genre profile and top artists per window |
 | `GET /api/recommendations?lat&lng&radius&from&to&weekend&maxPrice&genres&exclude` | ranked shows, "new to you" artists, score breakdowns. `radius=any` ignores location |
 | `GET /api/concerts?lat&lng` | shows anywhere for your top artists |
+| `GET /api/demo/artists?q`, `GET /api/demo/recommendations?artists&lat&lng&radius` | login-free demo used by aryanh.dev. App-authenticated, rate limited, allowed from `DEMO_ORIGINS` |
 | `GET/PUT/DELETE /api/watchlist[/:artistId]` | saved artists |
 | `GET /api/alerts`, `POST /api/alerts/read`, `POST /api/alerts/refresh` | alerts inbox |
 | `GET/POST /api/feedback` | thumbs up/down |

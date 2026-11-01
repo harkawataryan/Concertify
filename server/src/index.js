@@ -18,6 +18,7 @@ import { createRankerClient } from './services/rankerClient.js';
 import { createWeightFitter } from './services/trainerClient.js';
 import { authRouter } from './routes/auth.js';
 import { apiRouter, loadListeningProfile } from './routes/api.js';
+import { demoRouter } from './routes/demo.js';
 
 export async function createApp(config) {
   const cache = await createCache({ redisUrl: config.redisUrl, maxEntries: config.cache.maxEntries });
@@ -74,6 +75,9 @@ export async function createApp(config) {
   // addresses are configured; otherwise the in-process reference code runs.
   const ranker = createRankerClient({ addr: config.rankerAddr });
   const fitWeights = createWeightFitter({ addr: config.trainerAddr });
+  // Public, login-free demo for the portfolio site; mounted before the
+  // session-guarded API and allowed from the site's origin.
+  app.use('/api/demo', demoRouter({ spotify, ticketmaster, withCache, ranker, origins: [config.frontendUrl, ...config.demoOrigins] }));
   app.use('/api', apiRouter({ spotify, ticketmaster, store, cache, ranker, fitWeights }));
 
   // In production the built client is served from the same origin as the

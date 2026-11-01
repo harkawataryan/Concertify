@@ -28,6 +28,8 @@ export function loadConfig(env = process.env) {
     publicUrl,
     frontendUrl: env.FRONTEND_URL || publicUrl || 'http://127.0.0.1:5173',
     clientDist: env.CLIENT_DIST || null,
+    // Extra origins allowed to call the public demo endpoints.
+    demoOrigins: (env.DEMO_ORIGINS || 'https://aryanh.dev').split(',').map((s) => s.trim()).filter(Boolean),
     sessionSecret: isProd ? required('SESSION_SECRET') : env.SESSION_SECRET || 'dev-only-session-secret',
     spotify: {
       clientId: required('SPOTIFY_CLIENT_ID'),

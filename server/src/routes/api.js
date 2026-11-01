@@ -42,7 +42,7 @@ function attractionToArtist(attraction) {
   };
 }
 
-const resolveArtist = async (attraction) => attractionToArtist(attraction);
+export const resolveArtist = async (attraction) => attractionToArtist(attraction);
 
 /** 8 lowercase alphanumerics (no ambiguous 0/o/1/l): ~2^37 codes, easy to read aloud. */
 function shareCode() {

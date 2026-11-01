@@ -32,7 +32,28 @@ export function createSpotifyClient({ clientId, clientSecret, redirectUri, withC
     };
   }
 
+  // App-only token (client credentials) for lookups that need no user, such
+  // as the public demo's artist search. Refreshed a minute before it expires.
+  let appTok = null;
+  async function appToken() {
+    if (appTok && appTok.expiresAt > Date.now() + 60_000) return appTok.accessToken;
+    appTok = await tokenRequest({ grant_type: 'client_credentials' });
+    return appTok.accessToken;
+  }
+
   return {
+    appToken,
+
+    /** Artist search for the demo's autocomplete; app-only, cached per query. */
+    async searchArtists(query, { limit: n = 6 } = {}) {
+      const key = normalizeName(query);
+      if (!key) return [];
+      return withCache(`spotify:artistsearch:${key}:${n}`, 6 * 3600, async () => {
+        const res = await apiGet(`${API}/search`, await appToken(), { q: query, type: 'artist', limit: n });
+        return (res.data.artists?.items || []).map(slimArtist);
+      });
+    },
+
     authorizeUrl({ state, scopes }) {
       const params = new URLSearchParams({
         response_type: 'code',
