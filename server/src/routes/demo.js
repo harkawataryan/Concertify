@@ -5,6 +5,7 @@ import { parseLatLng } from '../lib/geo.js';
 import { buildTasteProfile } from '../services/taste.js';
 import { enrichGenres } from '../services/genres.js';
 import { recommendEvents } from '../services/recommender.js';
+import { parseFilters, applyFilters, availableGenres } from '../services/filters.js';
 import { resolveArtist } from './api.js';
 
 const MAX_ARTISTS = 5;
@@ -38,24 +39,28 @@ export function demoRouter({ spotify, ticketmaster, withCache, ranker = null, or
     const origin = parseLatLng(req.query.lat, req.query.lng);
     if (!ids.length || !origin) return res.status(400).json({ error: 'expected artists=<spotify ids> and lat, lng' });
     const radiusMiles = Math.min(MAX_RADIUS_MI, Math.max(10, Number(req.query.radius) || 50));
-    const limit = Math.min(8, Math.max(1, Number(req.query.limit) || 5));
+    const limit = Math.min(10, Math.max(1, Number(req.query.limit) || 5));
+    const filters = parseFilters(req.query);
 
-    const key = `demo:${[...ids].sort().join(',')}:${origin.lat.toFixed(2)},${origin.lng.toFixed(2)}:${radiusMiles}:${limit}`;
+    const key = `demo:${[...ids].sort().join(',')}:${origin.lat.toFixed(2)},${origin.lng.toFixed(2)}:${radiusMiles}:${limit}:${JSON.stringify(filters)}`;
     const out = await withCache(key, RESULT_TTL_SEC, async () => {
       const token = await spotify.appToken();
-      const [artists, events] = await Promise.all([
+      const [artists, allEvents] = await Promise.all([
         Promise.all(ids.map((id) => spotify.getArtist(token, id).catch(() => null))),
         ticketmaster.eventsNear(origin, { radiusMiles })
       ]);
       const listed = artists.filter(Boolean);
       if (!listed.length) return { error: 'no such artists' };
+      const { events, filteredOut } = applyFilters(allEvents, filters);
       const topByRange = await enrichGenres({ short_term: listed, medium_term: listed }, ticketmaster, { budgetMs: ENRICH_BUDGET_MS });
       const profile = buildTasteProfile(topByRange);
       const result = await recommendEvents({ events, profile, origin, resolveArtist, limit, ranker });
       return {
         artists: listed.map((a) => ({ id: a.id, name: a.name, image: a.image })),
-        scanned: result.meta?.scanned ?? events.length,
+        scanned: allEvents.length,
+        filteredOut,
         radiusMiles,
+        genres: availableGenres(allEvents, 12),
         recommendations: result.recommendations.map((r) => ({
           affinity: r.affinity,
           reasons: r.reasons,
