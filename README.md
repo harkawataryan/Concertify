@@ -77,6 +77,7 @@ Everything under `/api` needs the session cookie from `/auth/login`.
 | `GET /api/recommendations?lat&lng&radius&from&to&weekend&maxPrice&genres&exclude` | ranked shows, "new to you" artists, score breakdowns. `radius=any` ignores location |
 | `GET /api/concerts?lat&lng` | shows anywhere for your top artists |
 | `GET /api/demo/artists?q`, `GET /api/demo/recommendations?artists&lat&lng&radius` | login-free demo used by aryanh.dev. App-authenticated, rate limited, allowed from `DEMO_ORIGINS` |
+| `POST /api/visits/hit`, `GET /api/visits` | live visit log for aryanh.dev's private dashboard. Beacons from `DEMO_ORIGINS`, read with `Authorization: Bearer $VISITS_TOKEN`. Off unless `VISITS_TOKEN` is set |
 | `GET/PUT/DELETE /api/watchlist[/:artistId]` | saved artists |
 | `GET /api/alerts`, `POST /api/alerts/read`, `POST /api/alerts/refresh` | alerts inbox |
 | `GET/POST /api/feedback` | thumbs up/down |

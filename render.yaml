@@ -19,6 +19,8 @@ services:
         sync: false
       - key: TICKETMASTER_API_KEY
         sync: false
+      - key: VISITS_TOKEN
+        sync: false
       - key: SESSION_SECRET
         generateValue: true
       - key: NODE_ENV

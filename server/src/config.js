@@ -43,6 +43,8 @@ export function loadConfig(env = process.env) {
       maxConcurrency: int('TM_CONCURRENCY', 3)
     },
     redisUrl: env.REDIS_URL || null,
+    // Bearer token the portfolio dashboard uses to read the live visit log.
+    visitsToken: env.VISITS_TOKEN || null,
     alertIntervalMs: int('ALERT_INTERVAL_MINUTES', 360) * 60 * 1000,
     // gRPC sidecars; unset means in-process fallbacks.
     rankerAddr: env.RANKER_ADDR || null,

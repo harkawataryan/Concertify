@@ -19,6 +19,8 @@ import { createWeightFitter } from './services/trainerClient.js';
 import { authRouter } from './routes/auth.js';
 import { apiRouter, loadListeningProfile } from './routes/api.js';
 import { demoRouter } from './routes/demo.js';
+import { visitsRouter } from './routes/visits.js';
+import { createVisitStore } from './lib/visits.js';
 
 export async function createApp(config) {
   const cache = await createCache({ redisUrl: config.redisUrl, maxEntries: config.cache.maxEntries });
@@ -78,6 +80,10 @@ export async function createApp(config) {
   // Public, login-free demo for the portfolio site; mounted before the
   // session-guarded API and allowed from the site's origin.
   app.use('/api/demo', demoRouter({ spotify, ticketmaster, withCache, ranker, origins: [config.frontendUrl, ...config.demoOrigins] }));
+  // Live visit log for the portfolio dashboard. Off unless a token is set.
+  if (config.visitsToken) {
+    app.use('/api/visits', visitsRouter({ store: createVisitStore(cache.client || null), token: config.visitsToken, origins: [config.frontendUrl, ...config.demoOrigins] }));
+  }
   app.use('/api', apiRouter({ spotify, ticketmaster, store, cache, ranker, fitWeights }));
 
   // In production the built client is served from the same origin as the
