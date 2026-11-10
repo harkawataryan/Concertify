@@ -21,6 +21,7 @@ import { apiRouter, loadListeningProfile } from './routes/api.js';
 import { demoRouter } from './routes/demo.js';
 import { visitsRouter } from './routes/visits.js';
 import { createVisitStore } from './lib/visits.js';
+import { createNotifier } from './lib/visitEmail.js';
 
 export async function createApp(config) {
   const cache = await createCache({ redisUrl: config.redisUrl, maxEntries: config.cache.maxEntries });
@@ -82,7 +83,12 @@ export async function createApp(config) {
   app.use('/api/demo', demoRouter({ spotify, ticketmaster, withCache, ranker, origins: [config.frontendUrl, ...config.demoOrigins] }));
   // Live visit log for the portfolio dashboard. Off unless a token is set.
   if (config.visitsToken) {
-    app.use('/api/visits', visitsRouter({ store: createVisitStore(cache.client || null), token: config.visitsToken, origins: [config.frontendUrl, ...config.demoOrigins] }));
+    const visitStore = createVisitStore(cache.client || null);
+    const notifier = config.resendApiKey && config.notifyTo
+      ? createNotifier({ store: visitStore, apiKey: config.resendApiKey, to: config.notifyTo, log })
+      : null;
+    notifier?.start();
+    app.use('/api/visits', visitsRouter({ store: visitStore, token: config.visitsToken, origins: [config.frontendUrl, ...config.demoOrigins], notifier }));
   }
   app.use('/api', apiRouter({ spotify, ticketmaster, store, cache, ranker, fitWeights }));
 

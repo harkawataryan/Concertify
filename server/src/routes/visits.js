@@ -4,19 +4,24 @@ import rateLimit from 'express-rate-limit';
 import { timingSafeEqual } from 'node:crypto';
 import { recordHit, lookupGeo } from '../lib/visits.js';
 
-const MAX_LIST = 2000;
+const MAX_LIST = 5000;
 
 /**
  * Live visit log for the portfolio site's private dashboard.
  *
  *   POST /api/visits/hit   beacon from aryanh.dev, body is JSON sent as
  *                          text/plain so sendBeacon needs no preflight
- *   GET  /api/visits       the log, bearer-token protected
+ *   GET  /api/visits       the log, bearer-token protected. `since` (ms)
+ *                          returns only visits active since then, so the
+ *                          dashboard can poll cheaply
+ *   GET  /api/visits/status public: whether this server is emailing visits,
+ *                          which the hourly backup job checks before
+ *                          sending its own
  *
  * Mounted only when VISITS_TOKEN is set, so nothing is collected unless
  * there's a way to read it.
  */
-export function visitsRouter({ store, token, origins = [], geo = lookupGeo, now = Date.now }) {
+export function visitsRouter({ store, token, origins = [], geo = lookupGeo, now = Date.now, notifier = null }) {
   const router = express.Router();
   const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
   const tokenBuf = Buffer.from(token);
@@ -38,7 +43,14 @@ export function visitsRouter({ store, token, origins = [], geo = lookupGeo, now 
       if (!hit || typeof hit !== 'object') return res.status(400).end();
       await recordHit({ store, hit, ip: req.ip, ua: req.get('user-agent') || '', secret: token, geo, now });
       res.status(204).end();
+      // A beacon is also the moment the server is surely awake.
+      notifier?.sweep().catch(() => {});
     }));
+
+  router.get('/status', (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ ok: true, email: !!notifier });
+  });
 
   router.get('/', wrap(async (req, res) => {
     if (!authed(req)) return res.status(401).json({ error: 'unauthorized' });

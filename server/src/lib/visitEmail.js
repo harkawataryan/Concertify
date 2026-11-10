@@ -1,0 +1,118 @@
+/**
+ * One email per finished visit to aryanh.dev, sent through Resend.
+ *
+ * recordHit() schedules each visit for when it looks finished. A sweep runs
+ * every 30 seconds and at startup, so visits that came due while the free
+ * Render instance was asleep go out when it wakes. Each visit is marked
+ * `emailed` so it never goes out twice.
+ */
+
+const US_STATES = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut',
+  DE: 'Delaware', DC: 'Washington DC', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois',
+  IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana',
+  NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
+  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania',
+  RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
+  VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming'
+};
+let regionNames = null;
+try { regionNames = new Intl.DisplayNames(['en'], { type: 'region' }); } catch { /* small-icu builds */ }
+
+export function place(code) {
+  if (!code) return 'Unknown location';
+  const [country, region] = code.split('-');
+  if (country === 'US' && US_STATES[region]) return `${US_STATES[region]}, US`;
+  let name = country;
+  try { name = regionNames?.of(country) || country; } catch { /* unknown code */ }
+  return region ? `${region}, ${name}` : name;
+}
+
+function device(width) {
+  if (!width) return 'unknown screen';
+  const kind = width < 700 ? 'phone' : width < 1100 ? 'tablet' : 'desktop';
+  return `${kind}, ${width}px wide`;
+}
+
+const when = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/** Subject and plain-text body, in the same format the hourly emailer used. */
+export function summarize(v) {
+  const pages = [], clicks = [];
+  let section = null;
+  for (const h of v.hits) {
+    if (!h.e) { if (!pages.includes(h.p)) pages.push(h.p); continue; }
+    const m = /^visit\/([^/]+)\/(.+)$/.exec(h.p);
+    if (m) section = { name: m[1], stay: m[2] };
+    else clicks.push(h.p.replace(/^click\//, '').replace(/\/$/, ''));
+  }
+  const where = place(v.loc);
+  let refHost = '';
+  try { refHost = v.ref ? new URL(v.ref).hostname.replace(/^www\./, '') : ''; } catch { refHost = v.ref.split('/')[0]; }
+  const lines = [
+    `When:      ${when.format(new Date(v.start))} Central`,
+    `Where:     ${where}`,
+    `From:      ${v.ref || 'direct (typed or bookmarked)'}`,
+    `Device:    ${v.browser || '?'} on ${v.system || '?'}, ${device(v.width)}`,
+    `Visitor:   ${v.first ? 'first visit' : 'returning'}`,
+    `Pages:     ${pages.join(', ') || '(events only)'}`,
+    `Reached:   ${section ? `scrolled to ${section.name}, stayed ${section.stay}` : 'no scroll data (left before it was sent, or blocked)'}`,
+    `Clicked:   ${clicks.length ? clicks.join(', ') : 'nothing'}`
+  ];
+  return {
+    subject: `aryanh.dev visit · ${where} · ${refHost || 'direct'}`,
+    text: lines.join('\n') + '\n\nStats: https://aryanh.dev/stats/\n'
+  };
+}
+
+export async function sendResend({ apiKey, to, subject, text, fetchImpl = fetch }) {
+  // Without a verified domain, Resend only delivers from its onboarding
+  // address to the email the Resend account was created with.
+  const res = await fetchImpl('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: 'aryanh.dev <onboarding@resend.dev>', to: [to], subject, text }),
+    signal: AbortSignal.timeout(15_000)
+  });
+  if (!res.ok) throw new Error(`resend ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+
+export function createNotifier({ store, apiKey, to, now = Date.now, fetchImpl = fetch, log = console }) {
+  let running = false;
+  async function sweep() {
+    if (running) return 0;
+    running = true;
+    let sent = 0;
+    try {
+      for (const id of await store.dueBy(now())) {
+        const v = await store.getVisit(id);
+        if (!v || v.emailed) { await store.unschedule(id); continue; }
+        try {
+          const { subject, text } = summarize(v);
+          await sendResend({ apiKey, to, subject, text, fetchImpl });
+          v.emailed = true;
+          await store.putVisit(v);
+          await store.unschedule(id);
+          sent++;
+        } catch (err) {
+          // Leave it scheduled; the next sweep retries.
+          log.warn?.('visit email failed', { err: err.message });
+          break;
+        }
+      }
+    } finally {
+      running = false;
+    }
+    return sent;
+  }
+  return {
+    sweep,
+    start(intervalMs = 30_000) {
+      sweep().catch(() => {});
+      const t = setInterval(() => sweep().catch(() => {}), intervalMs);
+      t.unref?.();
+      return () => clearInterval(t);
+    }
+  };
+}

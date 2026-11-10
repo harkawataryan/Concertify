@@ -45,6 +45,9 @@ export function loadConfig(env = process.env) {
     redisUrl: env.REDIS_URL || null,
     // Bearer token the portfolio dashboard uses to read the live visit log.
     visitsToken: env.VISITS_TOKEN || null,
+    // Real-time visit emails, sent through Resend when both are set.
+    resendApiKey: env.RESEND_API_KEY || null,
+    notifyTo: env.NOTIFY_TO || null,
     alertIntervalMs: int('ALERT_INTERVAL_MINUTES', 360) * 60 * 1000,
     // gRPC sidecars; unset means in-process fallbacks.
     rankerAddr: env.RANKER_ADDR || null,

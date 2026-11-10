@@ -21,6 +21,10 @@ services:
         sync: false
       - key: VISITS_TOKEN
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: NOTIFY_TO
+        sync: false
       - key: SESSION_SECRET
         generateValue: true
       - key: NODE_ENV
