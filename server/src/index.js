@@ -1,7 +1,6 @@
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import cors from 'cors';
 import cookieSession from 'cookie-session';
 import rateLimit from 'express-rate-limit';
 import { loadConfig } from './config.js';
@@ -20,6 +19,7 @@ import { authRouter } from './routes/auth.js';
 import { apiRouter, loadListeningProfile } from './routes/api.js';
 import { demoRouter } from './routes/demo.js';
 import { visitsRouter } from './routes/visits.js';
+import { siteCors } from './lib/siteCors.js';
 import { createVisitStore } from './lib/visits.js';
 import { createNotifier } from './lib/visitEmail.js';
 
@@ -47,7 +47,7 @@ export async function createApp(config) {
   app.set('trust proxy', 1);
   app.use(metricsMiddleware());
   app.use(express.json({ limit: '10kb' }));
-  app.use(cors({ origin: config.frontendUrl, credentials: true }));
+  app.use(siteCors(config.frontendUrl));
   app.use(cookieSession({
     name: 'concertify.sid',
     secret: config.sessionSecret,
