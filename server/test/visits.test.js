@@ -98,9 +98,40 @@ describe('visits', () => {
   it('reports since when it has been recording', async () => {
     const { app, tick } = build();
     let r = await call(app, 'GET', '/api/visits/status');
-    expect(r.body).toEqual({ ok: true, email: false, since: '2026-11-10T12:00:00.000Z' });
+    expect(r.body).toMatchObject({ ok: true, email: false, since: '2026-11-10T12:00:00.000Z' });
     tick(60_000);
     r = await call(app, 'GET', '/api/visits/status');
     expect(r.body.since).toBe('2026-11-10T12:00:00.000Z');
+  });
+});
+
+describe('client address and geo lookup', () => {
+  it('prefers Cloudflare and the first public forwarded address over req.ip', async () => {
+    const { clientIp } = await import('../src/lib/visits.js');
+    const req = (headers, ip = '10.0.0.5') => ({ ip, headers, get: (n) => headers[n] });
+    expect(clientIp(req({ 'cf-connecting-ip': '198.51.100.7', 'x-forwarded-for': '203.0.113.9' }))).toBe('198.51.100.7');
+    expect(clientIp(req({ 'x-forwarded-for': '10.1.2.3, 203.0.113.9, 104.16.0.1' }))).toBe('203.0.113.9');
+    expect(clientIp(req({}, '::ffff:198.51.100.8'))).toBe('198.51.100.8');
+  });
+
+  it('falls back to the second provider and reports failures without caching them', async () => {
+    const { lookupGeo, recordHit, geoStats } = await import('../src/lib/visits.js');
+    const ok = (body) => ({ ok: true, json: async () => body });
+    const fetchImpl = async (url) => (url.includes('ip-api') ? { ok: false, status: 429 } : ok({ success: true, country_code: 'TW', region_code: 'TPE' }));
+    expect(await lookupGeo('203.0.113.9', { fetchImpl })).toBe('TW-TPE');
+    const down = async () => { throw new Error('offline'); };
+    expect(await lookupGeo('203.0.113.9', { fetchImpl: down })).toBe('');
+    expect(geoStats.lastError).toContain('offline');
+    expect(await lookupGeo('10.0.0.5')).toBe('');
+    expect(geoStats.lastError).toBe('private or proxy address');
+
+    const store = new MemoryVisitStore();
+    let calls = 0;
+    const flaky = async () => (calls++ === 0 ? '' : 'US-TX');
+    const UA2 = 'Mozilla/5.0 (Windows NT 10.0) Chrome/150.0 Safari/537.36';
+    const a = await recordHit({ store, hit: { p: '/' }, ip: '203.0.113.20', ua: UA2, secret: 's', geo: flaky });
+    const b = await recordHit({ store, hit: { p: '/' }, ip: '203.0.113.20', ua: UA2 + ' x', secret: 's', geo: flaky });
+    expect(a.loc).toBe('');
+    expect(b.loc).toBe('US-TX');
   });
 });

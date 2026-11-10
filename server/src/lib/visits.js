@@ -118,18 +118,61 @@ export function parseUserAgent(ua = '') {
 
 const PRIVATE = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|fc|fd|fe80|0\.0\.0\.0)/;
 
-/** Country and region as "US-TX", looked up through ip-api.com and cached by hashed IP. */
-export async function lookupGeo(ip, { fetchImpl = fetch, timeoutMs = 1500 } = {}) {
-  if (!ip || PRIVATE.test(ip)) return '';
-  try {
-    const res = await fetchImpl(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,countryCode,region`, { signal: AbortSignal.timeout(timeoutMs) });
-    if (!res.ok) return '';
-    const j = await res.json();
-    if (j.status !== 'success' || !j.countryCode) return '';
-    return j.region ? `${j.countryCode}-${j.region}` : j.countryCode;
-  } catch {
-    return '';
+const isPublic = (ip) => !!ip && !PRIVATE.test(ip) && !/^::ffff:(127|10|192\.168)\./.test(ip);
+
+/**
+ * The visitor's address. Render sits behind Cloudflare and its own proxy, so
+ * req.ip (one trusted hop) can land on a proxy instead of the visitor.
+ * Cloudflare's own header is the most reliable, then the first public
+ * address in X-Forwarded-For, then req.ip.
+ */
+export function clientIp(req) {
+  const h = (n) => (req.get?.(n) || req.headers?.[n] || '').trim();
+  for (const n of ['cf-connecting-ip', 'true-client-ip']) if (isPublic(h(n))) return h(n);
+  for (const part of h('x-forwarded-for').split(',')) {
+    const ip = part.trim().replace(/^::ffff:/, '');
+    if (isPublic(ip)) return ip;
   }
+  return (req.ip || '').replace(/^::ffff:/, '');
+}
+
+// Outcome of recent lookups, for /api/visits/status. Never holds an IP.
+export const geoStats = { ok: 0, failed: 0, lastError: null, lastErrorAt: null };
+const fail = (why) => { geoStats.failed++; geoStats.lastError = why; geoStats.lastErrorAt = new Date().toISOString(); return ''; };
+
+async function viaIpApi(ip, fetchImpl, timeoutMs) {
+  const res = await fetchImpl(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,countryCode,region,message`, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) throw new Error(`ip-api HTTP ${res.status}`);
+  const j = await res.json();
+  if (j.status !== 'success' || !j.countryCode) throw new Error(`ip-api ${j.message || 'no result'}`);
+  return j.region ? `${j.countryCode}-${j.region}` : j.countryCode;
+}
+async function viaIpWho(ip, fetchImpl, timeoutMs) {
+  const res = await fetchImpl(`https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country_code,region_code,message`, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) throw new Error(`ipwho.is HTTP ${res.status}`);
+  const j = await res.json();
+  if (!j.success || !j.country_code) throw new Error(`ipwho.is ${j.message || 'no result'}`);
+  return j.region_code ? `${j.country_code}-${j.region_code}` : j.country_code;
+}
+
+/**
+ * Country and region as "US-TX". Tries ip-api.com, then ipwho.is: Render's
+ * outbound addresses are shared with many other services, so one free API's
+ * per-IP limit can run out. Returns '' when neither answers.
+ */
+export async function lookupGeo(ip, { fetchImpl = fetch, timeoutMs = 2500 } = {}) {
+  if (!isPublic(ip)) return fail(ip ? 'private or proxy address' : 'no address');
+  const errors = [];
+  for (const provider of [viaIpApi, viaIpWho]) {
+    try {
+      const loc = await provider(ip, fetchImpl, timeoutMs);
+      geoStats.ok++;
+      return loc;
+    } catch (e) {
+      errors.push(e.name === 'TimeoutError' ? `${provider === viaIpApi ? 'ip-api' : 'ipwho.is'} timeout` : e.message);
+    }
+  }
+  return fail(errors.join('; '));
 }
 
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -154,7 +197,9 @@ export async function recordHit({ store, hit, ip, ua, secret, geo = lookupGeo, n
   const h = { t: new Date(t).toISOString(), p: path, e: !!hit.e };
   if (!v) {
     let loc = await store.getGeo(ipHash);
-    if (loc == null) { loc = await geo(ip); await store.setGeo(ipHash, loc); }
+    // Only cache answers: a failed lookup is retried on the next visit
+    // instead of pinning that address to "Unknown location" for a day.
+    if (!loc) { loc = await geo(ip); if (loc) await store.setGeo(ipHash, loc); }
     const { browser, system } = parseUserAgent(ua);
     const first = await store.markSeen(sha(`seen|${secret}|${ip}|${ua}`).slice(0, 16));
     v = { id, start: h.t, end: h.t, loc, ref: str(hit.ref, 300), browser, system, width: Number.isFinite(+hit.w) ? Math.max(0, Math.min(10000, Math.round(+hit.w))) : 0, first, hits: [h] };

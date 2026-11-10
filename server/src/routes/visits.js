@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { timingSafeEqual } from 'node:crypto';
-import { recordHit, lookupGeo } from '../lib/visits.js';
+import { recordHit, lookupGeo, clientIp, geoStats } from '../lib/visits.js';
 
 const MAX_LIST = 5000;
 
@@ -41,7 +41,7 @@ export function visitsRouter({ store, token, origins = [], geo = lookupGeo, now 
       let hit;
       try { hit = JSON.parse(req.body || '{}'); } catch { return res.status(400).end(); }
       if (!hit || typeof hit !== 'object') return res.status(400).end();
-      await recordHit({ store, hit, ip: req.ip, ua: req.get('user-agent') || '', secret: token, geo, now });
+      await recordHit({ store, hit, ip: clientIp(req), ua: req.get('user-agent') || '', secret: token, geo, now });
       res.status(204).end();
       // A beacon is also the moment the server is surely awake.
       notifier?.sweep().catch(() => {});
@@ -53,7 +53,7 @@ export function visitsRouter({ store, token, origins = [], geo = lookupGeo, now 
 
   router.get('/status', wrap(async (_req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ ok: true, email: !!notifier, since: new Date(await since).toISOString() });
+    res.json({ ok: true, email: !!notifier, since: new Date(await since).toISOString(), geo: geoStats });
   }));
 
   router.get('/', wrap(async (req, res) => {
