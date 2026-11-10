@@ -94,4 +94,13 @@ describe('visits', () => {
     expect(parseUserAgent('Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/130.0 Safari/537.36 Edg/130.0')).toEqual({ browser: 'Edge 130', system: 'Windows' });
     expect(parseUserAgent('curl/8.0')).toEqual({ browser: 'Bot', system: '' });
   });
+
+  it('reports since when it has been recording', async () => {
+    const { app, tick } = build();
+    let r = await call(app, 'GET', '/api/visits/status');
+    expect(r.body).toEqual({ ok: true, email: false, since: '2026-11-10T12:00:00.000Z' });
+    tick(60_000);
+    r = await call(app, 'GET', '/api/visits/status');
+    expect(r.body.since).toBe('2026-11-10T12:00:00.000Z');
+  });
 });

@@ -49,6 +49,8 @@ export class MemoryVisitStore {
   async schedule(id, dueMs) { (this.due ||= new Map()).set(id, dueMs); }
   async unschedule(id) { this.due?.delete(id); }
   async dueBy(nowMs) { return [...(this.due || new Map())].filter(([, d]) => d <= nowMs).map(([id]) => id); }
+  // When this log started recording. Kept forever.
+  async since(nowMs) { return (this.started ||= nowMs); }
 }
 
 export class RedisVisitStore {
@@ -77,6 +79,13 @@ export class RedisVisitStore {
   async schedule(id, dueMs) { await this.c.zadd(`${PREFIX}due`, dueMs, id); }
   async unschedule(id) { await this.c.zrem(`${PREFIX}due`, id); }
   async dueBy(nowMs) { return this.c.zrangebyscore(`${PREFIX}due`, '-inf', nowMs, 'LIMIT', 0, 50); }
+  async since(nowMs) {
+    // A log that was already running before this was added starts at its
+    // oldest visit, not at this deploy.
+    const [, oldest] = await this.c.zrange(`${PREFIX}idx`, 0, 0, 'WITHSCORES');
+    await this.c.set(`${PREFIX}since`, String(Math.min(nowMs, Number(oldest) || nowMs)), 'NX');
+    return Number(await this.c.get(`${PREFIX}since`));
+  }
 }
 
 export function createVisitStore(redisClient) {

@@ -14,9 +14,9 @@ const MAX_LIST = 5000;
  *   GET  /api/visits       the log, bearer-token protected. `since` (ms)
  *                          returns only visits active since then, so the
  *                          dashboard can poll cheaply
- *   GET  /api/visits/status public: whether this server is emailing visits,
- *                          which the hourly backup job checks before
- *                          sending its own
+ *   GET  /api/visits/status public: whether this server is emailing visits
+ *                          and since when it has been recording, which the
+ *                          hourly backup job checks before sending its own
  *
  * Mounted only when VISITS_TOKEN is set, so nothing is collected unless
  * there's a way to read it.
@@ -47,10 +47,14 @@ export function visitsRouter({ store, token, origins = [], geo = lookupGeo, now 
       notifier?.sweep().catch(() => {});
     }));
 
-  router.get('/status', (_req, res) => {
+  // Recorded the first time the log runs, so the backup job knows which
+  // visits only GoatCounter could have seen.
+  const since = store.since(now());
+
+  router.get('/status', wrap(async (_req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ ok: true, email: !!notifier });
-  });
+    res.json({ ok: true, email: !!notifier, since: new Date(await since).toISOString() });
+  }));
 
   router.get('/', wrap(async (req, res) => {
     if (!authed(req)) return res.status(401).json({ error: 'unauthorized' });
