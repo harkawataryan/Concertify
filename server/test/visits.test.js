@@ -135,3 +135,25 @@ describe('client address and geo lookup', () => {
     expect(b.loc).toBe('US-TX');
   });
 });
+
+describe('saving a backfilled location', () => {
+  it('sets a missing location with the token, and never overwrites one', async () => {
+    const { app } = build({ geo: async () => '' });
+    await hit(app, { p: '/' });
+    const auth = { authorization: 'Bearer secret', 'content-type': 'application/json' };
+    const list = await call(app, 'GET', '/api/visits', { headers: auth });
+    const id = list.body.visits[0].id;
+    expect(list.body.visits[0].loc).toBe('');
+
+    expect((await call(app, 'PATCH', `/api/visits/${id}`, { body: '{"loc":"US-WA"}', headers: { 'content-type': 'application/json' } })).status).toBe(401);
+    expect((await call(app, 'PATCH', `/api/visits/${id}`, { body: '{"loc":"<script>"}', headers: auth })).status).toBe(400);
+    expect((await call(app, 'PATCH', '/api/visits/nope', { body: '{"loc":"US-WA"}', headers: auth })).status).toBe(404);
+
+    const ok = await call(app, 'PATCH', `/api/visits/${id}`, { body: '{"loc":"us-wa"}', headers: auth });
+    expect(ok.body).toEqual({ id, loc: 'US-WA', locFrom: 'goatcounter' });
+    expect((await call(app, 'PATCH', `/api/visits/${id}`, { body: '{"loc":"DE"}', headers: auth })).status).toBe(409);
+
+    const after = await call(app, 'GET', '/api/visits', { headers: auth });
+    expect(after.body.visits[0]).toMatchObject({ loc: 'US-WA', locFrom: 'goatcounter' });
+  });
+});

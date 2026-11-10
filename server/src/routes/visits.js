@@ -14,6 +14,10 @@ const MAX_LIST = 5000;
  *   GET  /api/visits       the log, bearer-token protected. `since` (ms)
  *                          returns only visits active since then, so the
  *                          dashboard can poll cheaply
+ *   PATCH /api/visits/:id  bearer-token protected. { loc } sets the
+ *                          location of a visit whose own lookup failed,
+ *                          from GoatCounter's record of the same visit.
+ *                          Never overwrites a location the log already has
  *   GET  /api/visits/status public: whether this server is emailing visits
  *                          and since when it has been recording, which the
  *                          hourly backup job checks before sending its own
@@ -63,6 +67,19 @@ export function visitsRouter({ store, token, origins = [], geo = lookupGeo, now 
     const visits = await store.listSince(since, limit);
     res.set('Cache-Control', 'no-store');
     res.json({ updated: new Date(now()).toISOString(), visits });
+  }));
+
+  router.patch('/:id', express.json({ limit: '1kb' }), wrap(async (req, res) => {
+    if (!authed(req)) return res.status(401).json({ error: 'unauthorized' });
+    const loc = typeof req.body?.loc === 'string' ? req.body.loc.trim().toUpperCase() : '';
+    if (!/^[A-Z]{2}(-[A-Z0-9]{1,3})?$/.test(loc)) return res.status(400).json({ error: 'loc must look like US-TX or DE' });
+    const v = await store.getVisit(String(req.params.id).slice(0, 32));
+    if (!v) return res.status(404).json({ error: 'no such visit' });
+    if (v.loc) return res.status(409).json({ error: 'visit already has a location', loc: v.loc });
+    v.loc = loc;
+    v.locFrom = 'goatcounter';
+    await store.putVisit(v);
+    res.json({ id: v.id, loc: v.loc, locFrom: v.locFrom });
   }));
 
   return router;
