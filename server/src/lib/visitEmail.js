@@ -29,13 +29,28 @@ export function place(code) {
   return region ? `${region}, ${name}` : name;
 }
 
-function device(width) {
-  if (!width) return 'unknown screen';
-  const kind = width < 700 ? 'phone' : width < 1100 ? 'tablet' : 'desktop';
-  return `${kind}, ${width}px wide`;
+function device(v) {
+  const kind = v.kind || (!v.width ? 'unknown device' : v.width < 700 ? 'phone' : v.width < 1100 ? 'tablet' : 'desktop');
+  return v.width ? `${kind}, ${v.width}px wide` : kind;
+}
+
+/** "45s", "3m 10s". */
+export function duration(sec) {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60), r = sec % 60;
+  return r ? `${m}m ${r}s` : `${m}m`;
 }
 
 const when = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+// Heartbeats give the exact visible time and deepest section. Older pages
+// only send the closing summary, which has a time bucket.
+function reached(v, section) {
+  const where = v.deepest || section?.name;
+  const stay = v.active ? duration(v.active) : section?.stay;
+  if (!where && !stay) return 'no scroll data (left before it was sent, or blocked)';
+  return [where && `scrolled to ${where}`, stay && `stayed ${stay}`].filter(Boolean).join(', ');
+}
 
 /** Subject and plain-text body, in the same format the hourly emailer used. */
 export function summarize(v) {
@@ -54,10 +69,10 @@ export function summarize(v) {
     `When:      ${when.format(new Date(v.start))} Central`,
     `Where:     ${where}`,
     `From:      ${v.ref || 'direct (typed or bookmarked)'}`,
-    `Device:    ${v.browser || '?'} on ${v.system || '?'}, ${device(v.width)}`,
+    `Device:    ${v.browser || '?'} on ${v.system || '?'}, ${device(v)}`,
     `Visitor:   ${v.first ? 'first visit' : 'returning'}`,
     `Pages:     ${pages.join(', ') || '(events only)'}`,
-    `Reached:   ${section ? `scrolled to ${section.name}, stayed ${section.stay}` : 'no scroll data (left before it was sent, or blocked)'}`,
+    `Reached:   ${reached(v, section)}`,
     `Clicked:   ${clicks.length ? clicks.join(', ') : 'nothing'}`
   ];
   return {
@@ -87,7 +102,7 @@ export function createNotifier({ store, apiKey, to, now = Date.now, fetchImpl = 
     try {
       for (const id of await store.dueBy(now())) {
         const v = await store.getVisit(id);
-        if (!v || v.emailed) { await store.unschedule(id); continue; }
+        if (!v || v.emailed || (v.dc && !v.human)) { await store.unschedule(id); continue; }
         try {
           const { subject, text } = summarize(v);
           await sendResend({ apiKey, to, subject, text, fetchImpl });

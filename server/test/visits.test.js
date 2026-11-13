@@ -118,7 +118,7 @@ describe('client address and geo lookup', () => {
     const { lookupGeo, recordHit, geoStats } = await import('../src/lib/visits.js');
     const ok = (body) => ({ ok: true, json: async () => body });
     const fetchImpl = async (url) => (url.includes('ip-api') ? { ok: false, status: 429 } : ok({ success: true, country_code: 'TW', region_code: 'TPE' }));
-    expect(await lookupGeo('203.0.113.9', { fetchImpl })).toBe('TW-TPE');
+    expect(await lookupGeo('203.0.113.9', { fetchImpl })).toEqual({ loc: 'TW-TPE', dc: false });
     const down = async () => { throw new Error('offline'); };
     expect(await lookupGeo('203.0.113.9', { fetchImpl: down })).toBe('');
     expect(geoStats.lastError).toContain('offline');

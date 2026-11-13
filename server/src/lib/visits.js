@@ -45,6 +45,9 @@ export class MemoryVisitStore {
   async setGeo(h, loc) { this.geo.set(h, loc); }
   /** True the first time a visitor hash is seen. */
   async markSeen(h) { if (this.seen.has(h)) return false; this.seen.add(h); return true; }
+  // The visit a browser's visitor id is currently in, until 30 quiet minutes pass.
+  async currentSession(vid, nowMs) { const s = (this.sessions ||= new Map()).get(vid); return s && s.until > nowMs ? s.id : null; }
+  async touchSession(vid, id, nowMs, ttlSec) { (this.sessions ||= new Map()).set(vid, { id, until: nowMs + ttlSec * 1000 }); }
   // Visits waiting for their notification email, by due time.
   async schedule(id, dueMs) { (this.due ||= new Map()).set(id, dueMs); }
   async unschedule(id) { this.due?.delete(id); }
@@ -75,7 +78,9 @@ export class RedisVisitStore {
   }
   async getGeo(h) { return this.c.get(`${PREFIX}geo:${h}`); }
   async setGeo(h, loc) { await this.c.set(`${PREFIX}geo:${h}`, loc, 'EX', GEO_TTL_SEC); }
-  async markSeen(h) { return (await this.c.set(`${PREFIX}seen:${h}`, '1', 'EX', SEEN_TTL_SEC, 'NX')) === 'OK'; }
+  async markSeen(h, ttlSec = SEEN_TTL_SEC) { return (await this.c.set(`${PREFIX}seen:${h}`, '1', 'EX', ttlSec, 'NX')) === 'OK'; }
+  async currentSession(vid) { return this.c.get(`${PREFIX}cur:${vid}`); }
+  async touchSession(vid, id, _nowMs, ttlSec) { await this.c.set(`${PREFIX}cur:${vid}`, id, 'EX', ttlSec); }
   async schedule(id, dueMs) { await this.c.zadd(`${PREFIX}due`, dueMs, id); }
   async unschedule(id) { await this.c.zrem(`${PREFIX}due`, id); }
   async dueBy(nowMs) { return this.c.zrangebyscore(`${PREFIX}due`, '-inf', nowMs, 'LIMIT', 0, 50); }
@@ -116,6 +121,24 @@ export function parseUserAgent(ua = '') {
   return { browser, system };
 }
 
+/**
+ * Phone, tablet or desktop. The user agent says it directly for most
+ * devices. iPads report a Mac user agent, so a "Mac" with a touch screen is
+ * an iPad. Screen width only decides when nothing else does.
+ */
+export function deviceKind(ua = '', width = 0, touchPoints = 0) {
+  if (/iPad|Tablet|PlayBook|Silk|Kindle/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) return 'tablet';
+  if (/Macintosh/i.test(ua) && touchPoints > 1) return 'tablet';
+  if (/Mobi|iPhone|iPod|Windows Phone/i.test(ua)) return 'phone';
+  if (/Windows|Macintosh|X11|CrOS|Linux/i.test(ua)) return 'desktop';
+  if (!width) return 'unknown';
+  return width < 700 ? 'phone' : width < 1100 ? 'tablet' : 'desktop';
+}
+
+// Hosting and cloud networks by name, for when ip-api isn't the provider that
+// answered and there's no hosting flag.
+const DATACENTER = /amazon|aws|google|microsoft|azure|digitalocean|linode|akamai|ovh|hetzner|vultr|oracle|alibaba|tencent|choopa|leaseweb|contabo|scaleway|cloudflare|fastly|m247|datacamp|hostinger|colocrossing/i;
+
 const PRIVATE = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|fc|fd|fe80|0\.0\.0\.0)/;
 
 const isPublic = (ip) => !!ip && !PRIVATE.test(ip) && !/^::ffff:(127|10|192\.168)\./.test(ip);
@@ -141,22 +164,23 @@ export const geoStats = { ok: 0, failed: 0, lastError: null, lastErrorAt: null }
 const fail = (why) => { geoStats.failed++; geoStats.lastError = why; geoStats.lastErrorAt = new Date().toISOString(); return ''; };
 
 async function viaIpApi(ip, fetchImpl, timeoutMs) {
-  const res = await fetchImpl(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,countryCode,region,message`, { signal: AbortSignal.timeout(timeoutMs) });
+  const res = await fetchImpl(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,countryCode,region,hosting,org,isp,message`, { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`ip-api HTTP ${res.status}`);
   const j = await res.json();
   if (j.status !== 'success' || !j.countryCode) throw new Error(`ip-api ${j.message || 'no result'}`);
-  return j.region ? `${j.countryCode}-${j.region}` : j.countryCode;
+  return { loc: j.region ? `${j.countryCode}-${j.region}` : j.countryCode, dc: !!j.hosting || DATACENTER.test(`${j.org} ${j.isp}`) };
 }
 async function viaIpWho(ip, fetchImpl, timeoutMs) {
-  const res = await fetchImpl(`https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country_code,region_code,message`, { signal: AbortSignal.timeout(timeoutMs) });
+  const res = await fetchImpl(`https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country_code,region_code,connection,message`, { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`ipwho.is HTTP ${res.status}`);
   const j = await res.json();
   if (!j.success || !j.country_code) throw new Error(`ipwho.is ${j.message || 'no result'}`);
-  return j.region_code ? `${j.country_code}-${j.region_code}` : j.country_code;
+  return { loc: j.region_code ? `${j.country_code}-${j.region_code}` : j.country_code, dc: DATACENTER.test(`${j.connection?.org} ${j.connection?.isp}`) };
 }
 
 /**
- * Country and region as "US-TX". Tries ip-api.com, then ipwho.is: Render's
+ * Country and region as "US-TX", and whether the address belongs to a data
+ * center or cloud host. Tries ip-api.com, then ipwho.is: Render's
  * outbound addresses are shared with many other services, so one free API's
  * per-IP limit can run out. Returns '' when neither answers.
  */
@@ -165,9 +189,9 @@ export async function lookupGeo(ip, { fetchImpl = fetch, timeoutMs = 2500 } = {}
   const errors = [];
   for (const provider of [viaIpApi, viaIpWho]) {
     try {
-      const loc = await provider(ip, fetchImpl, timeoutMs);
+      const found = await provider(ip, fetchImpl, timeoutMs);
       geoStats.ok++;
-      return loc;
+      return found;
     } catch (e) {
       errors.push(e.name === 'TimeoutError' ? `${provider === viaIpApi ? 'ip-api' : 'ipwho.is'} timeout` : e.message);
     }
@@ -176,48 +200,95 @@ export async function lookupGeo(ip, { fetchImpl = fetch, timeoutMs = 2500 } = {}
 }
 
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+const VID = /^[A-Za-z0-9]{12,40}$/;
+const SECTION = /^[a-z][a-z0-9-]{0,30}$/;
+const SESSION_GAP_SEC = 30 * 60;
+const VISITOR_TTL_SEC = 400 * 24 * 3600;
+// Old cache entries are a bare "US-TX"; newer ones are JSON with the data center flag.
+const parseGeo = (raw) => (raw && raw[0] === '{' ? JSON.parse(raw) : raw ? { loc: raw, dc: false } : null);
+const asGeo = (g) => (typeof g === 'string' ? { loc: g, dc: false } : g || { loc: '', dc: false });
 
-/**
- * Records one hit and returns the updated visit. `hit` is the parsed beacon
- * body: { p, e, ref, w }. `secret` keys the visitor and geo hashes so they
- * can't be reversed from the stored data.
- */
 export const SETTLE_AFTER_SUMMARY_MS = 90 * 1000;
+export const SETTLE_AFTER_PING_MS = 2 * 60 * 1000;
 export const SETTLE_IDLE_MS = 10 * 60 * 1000;
 
+/** A data center visit that never scrolled, clicked or touched the page. */
+export const isAutomated = (v) => !!(v && v.dc && !v.human);
+
+/**
+ * Records one beacon and returns the updated visit.
+ *
+ * A beacon is { p, e, ref, w, v, tp } for a page view or event, where `v` is
+ * a random id the browser keeps in localStorage and `tp` its touch points.
+ * Heartbeats add { k: 'ping', s, d, i }: seconds the page has been visible,
+ * the deepest section reached, and whether the visitor has interacted.
+ *
+ * A visit is everything from one visitor id with gaps under 30 minutes. Old
+ * cached pages send no id, and those fall back to IP plus user agent with a
+ * salt that changes daily.
+ */
 export async function recordHit({ store, hit, ip, ua, secret, geo = lookupGeo, now = Date.now }) {
   if (isBot(ua)) return null;
   const t = now();
+  const ping = hit.k === 'ping';
   const path = str(hit.p, 200) || '/';
-  const salt = await store.salt(dayOf(t));
-  const id = sha(`${salt}|${ip}|${ua}`).slice(0, 16);
-  const ipHash = sha(`geo|${secret}|${ip}`).slice(0, 16);
+  const vid = typeof hit.v === 'string' && VID.test(hit.v) ? hit.v : null;
+
+  let id;
+  if (vid) {
+    id = (await store.currentSession(vid, t)) || sha(`visit|${secret}|${vid}|${t}`).slice(0, 16);
+    await store.touchSession(vid, id, t, SESSION_GAP_SEC);
+  } else {
+    const salt = await store.salt(dayOf(t));
+    id = sha(`${salt}|${ip}|${ua}`).slice(0, 16);
+  }
 
   let v = await store.getVisit(id);
   const h = { t: new Date(t).toISOString(), p: path, e: !!hit.e };
+  const activeS = Number.isFinite(+hit.s) ? Math.max(0, Math.min(86400, Math.round(+hit.s))) : 0;
   if (!v) {
-    let loc = await store.getGeo(ipHash);
+    const ipHash = sha(`geo|${secret}|${ip}`).slice(0, 16);
+    let g = parseGeo(await store.getGeo(ipHash));
     // Only cache answers: a failed lookup is retried on the next visit
     // instead of pinning that address to "Unknown location" for a day.
-    if (!loc) { loc = await geo(ip); if (loc) await store.setGeo(ipHash, loc); }
+    if (!g) { g = asGeo(await geo(ip)); if (g.loc) await store.setGeo(ipHash, JSON.stringify(g)); }
     const { browser, system } = parseUserAgent(ua);
-    const first = await store.markSeen(sha(`seen|${secret}|${ip}|${ua}`).slice(0, 16));
-    v = { id, start: h.t, end: h.t, loc, ref: str(hit.ref, 300), browser, system, width: Number.isFinite(+hit.w) ? Math.max(0, Math.min(10000, Math.round(+hit.w))) : 0, first, hits: [h] };
-  } else {
-    // Same second, same path: a duplicate beacon (sendBeacon plus pagehide), skip it.
+    const first = vid
+      ? await store.markSeen(sha(`vid|${secret}|${vid}`).slice(0, 16), VISITOR_TTL_SEC)
+      : await store.markSeen(sha(`seen|${secret}|${ip}|${ua}`).slice(0, 16));
+    const width = Number.isFinite(+hit.w) ? Math.max(0, Math.min(10000, Math.round(+hit.w))) : 0;
+    // A heartbeat can open a visit whose first beacon was lost while the
+    // server woke up; it starts as far back as the page has been visible.
+    const startT = ping && activeS ? new Date(t - activeS * 1000).toISOString() : h.t;
+    v = {
+      id, start: startT, end: h.t, loc: g.loc, dc: !!g.dc, ref: str(hit.ref, 300), browser, system, width,
+      kind: deviceKind(ua, width, +hit.tp || 0), first, active: 0, deepest: null, human: false,
+      hits: ping ? [] : [h]
+    };
+    if (vid) v.visitor = sha(`who|${secret}|${vid}`).slice(0, 12);
+  } else if (!ping) {
+    // Same second, same path: a duplicate beacon (visibilitychange plus pagehide), skip it.
     const last = v.hits[v.hits.length - 1];
     if (!(last && last.p === h.p && last.e === h.e && Math.abs(Date.parse(last.t) - t) < 1000)) v.hits.push(h);
     if (v.hits.length > 200) v.hits = v.hits.slice(-200);
-    v.end = h.t;
     if (!v.ref && hit.ref) v.ref = str(hit.ref, 300);
   }
+  v.end = h.t;
+  if (activeS) v.active = Math.max(v.active || 0, activeS);
+  if (typeof hit.d === 'string' && SECTION.test(hit.d)) v.deepest = hit.d;
+  if (hit.i === true) v.human = true;
   await store.putVisit(v);
-  // Email once the visit looks finished: shortly after the page sends its
-  // closing summary, or after ten quiet minutes if it never does. Ten
-  // minutes also lands before Render's free tier spins the server down.
+
+  // Email once the visit looks finished: shortly after the closing summary,
+  // two minutes after the last heartbeat (they come every 30 seconds while
+  // the page is open), or after ten quiet minutes for pages too old to send
+  // heartbeats. Automated visits are never emailed.
   if (!v.emailed) {
-    const ended = v.hits.some((x) => x.e && x.p.startsWith('visit/'));
-    await store.schedule(v.id, t + (ended ? SETTLE_AFTER_SUMMARY_MS : SETTLE_IDLE_MS));
+    if (isAutomated(v)) await store.unschedule(v.id);
+    else {
+      const ended = v.hits.some((x) => x.e && x.p.startsWith('visit/'));
+      await store.schedule(v.id, t + (ended ? SETTLE_AFTER_SUMMARY_MS : v.active ? SETTLE_AFTER_PING_MS : SETTLE_IDLE_MS));
+    }
   }
   return v;
 }
