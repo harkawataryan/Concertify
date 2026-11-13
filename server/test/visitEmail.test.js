@@ -29,7 +29,7 @@ describe('visit emails', () => {
     expect(sent[0].subject).toBe('aryanh.dev visit · California, US · linkedin.com');
     expect(sent[0].to).toEqual(['me@example.com']);
     expect(sent[0].text).toContain('Device:    Safari 17 on iOS, phone, 390px wide');
-    expect(sent[0].text).toContain('Reached:   scrolled to herd, stayed 20-60s');
+    expect(sent[0].text).toContain('Reached:   scrolled to herd, stayed 34s');
     expect(sent[0].text).toContain('Clicked:   resume');
     expect(sent[0].text).toContain('When:      Tue, Nov 10, 2:00 PM Central');
   });

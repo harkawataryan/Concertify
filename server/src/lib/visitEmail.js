@@ -47,7 +47,12 @@ const when = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', wee
 // only send the closing summary, which has a time bucket.
 function reached(v, section) {
   const where = v.deepest || section?.name;
-  const stay = v.active ? duration(v.active) : section?.stay;
+  // Without heartbeats, the exact stay is the time from the first page view
+  // to the closing summary, which is sent the moment the visitor leaves.
+  const first = v.hits.find((h) => !h.e);
+  const left = [...v.hits].reverse().find((h) => h.e && h.p.startsWith('visit/'));
+  const exact = v.active || (first && left ? Math.max(0, Math.round((Date.parse(left.t) - Date.parse(first.t)) / 1000)) : null);
+  const stay = exact != null ? duration(exact) : section?.stay;
   if (!where && !stay) return 'no scroll data (left before it was sent, or blocked)';
   return [where && `scrolled to ${where}`, stay && `stayed ${stay}`].filter(Boolean).join(', ');
 }
