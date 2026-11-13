@@ -1,54 +1,53 @@
 # Concertify
 
-Finds concerts near you and ranks them by how much you actually listen to the artists. You log in with Spotify, pick a city, and it scores every upcoming show in the area against your listening history. Each result says why it was picked, and you can thumbs-up/down to change what it recommends.
+Concertify finds concerts near you and ranks them by how much you actually listen to the artists. You log in with Spotify, pick a city, and it scores every upcoming show in the area against your listening history. Each result says why it was picked, and a thumbs up or down changes what it recommends next.
 
-Live at https://concertify-cm6k.onrender.com (free tier, so the first load after a while can take ~30s).
+It's live at https://concertify-cm6k.onrender.com. It runs on Render's free tier, so the first load after a quiet stretch can take about 30 seconds.
 
-Stack: React + Vite on the front end, Node/Express API, a Go gRPC service for the ranking math, a small Python/PyTorch service that fits per-user ranking weights. Data comes from the Spotify Web API and the Ticketmaster Discovery API. Endpoint reference is in [docs/API.md](docs/API.md), the gRPC contract in [proto/concertify.proto](proto/concertify.proto).
+The front end is React and Vite, the API is Node and Express, the ranking math runs in a Go gRPC service, and a small Python and PyTorch service fits each user's ranking weights. Show data comes from the Spotify Web API and the Ticketmaster Discovery API. [docs/API.md](docs/API.md) documents the endpoints and [proto/concertify.proto](proto/concertify.proto) has the gRPC contract.
 
 ## What it does
 
-- Ranks shows within a radius of you, or anywhere at all, with filters for dates, weekends only, max ticket price and genre. Anywhere mode looks up every upcoming show for your top 40 artists instead of searching an area, and distance stops counting toward the score.
-- Group plans: make a plan, send the link, whoever joins gets their taste merged into one ranking. Uses the average match with a penalty for shows someone in the group would hate.
-- Watchlist and alerts: save artists, and a background job checks every few hours for new shows near you.
-- Map view, a page showing your genre profile over different time windows, calendar export, and a Prometheus `/metrics` endpoint.
+The main page ranks shows within a radius of you, with filters for dates, weekends only, maximum ticket price and genre. You can also search anywhere, which looks up every upcoming show for your top 40 artists instead of searching an area, and distance stops counting toward the score.
+
+Group plans let you make a plan, send the link, and merge everyone who joins into one ranking. It uses the group's average match with a penalty for shows that someone in the group would hate, so a show three people love and one would hate can lose to one everyone likes.
+
+You can also save artists to a watchlist, and a background job checks every few hours for new shows near you. There's a map view, a page that shows how your genre profile has changed over different time windows, calendar export, and a Prometheus `/metrics` endpoint.
 
 ## How the ranking works
 
-Two stages, both in `server/src/services/`.
+Everything starts from a taste profile. The server pulls your top artists for Spotify's three time windows (the last 4 weeks, 6 months and all time) and gives each artist a weight that drops with rank and favors the recent windows. Those weights roll up into a genre vector. Spotify stopped returning genres on artist objects in 2025, so missing genres are filled in from Ticketmaster's own classification of the artist (`genres.js`). That turned out to be a good fit, since it's the same vocabulary Ticketmaster tags events with.
 
-**Building a taste profile.** Top artists are pulled for three Spotify windows (last 4 weeks, 6 months, all time). Each artist gets a weight that drops with rank and favors recent windows. Those roll up into a genre vector. Spotify stopped returning genres on artist objects in 2025, so missing genres are filled in from Ticketmaster's own classification of the artist (`genres.js`), which also happens to be the vocabulary events are tagged with.
+Ranking then happens in two stages, both in `server/src/services/`. First, every music event in the radius (up to 800) gets a cheap score from Ticketmaster's genre tags plus a fuzzy name match against your top artists. The top 60, plus anything that matched one of your artists directly, move on to the second stage, where each one is scored on four signals.
 
-**Stage 1, retrieval.** All music events in the radius (up to 800) get a cheap score from Ticketmaster's genre tags plus a fuzzy name match against your top artists. The top 60, plus anything that matched an artist directly, move on.
-
-**Stage 2, ranking.** Each candidate is scored on four things:
-
-| signal | weight | what it is |
+| signal | weight | what it measures |
 |---|---|---|
 | direct | 0.55 | your listening weight for this exact artist |
 | genre | 0.30 | cosine similarity between the show's genres and your profile |
 | proximity | 0.08 | `exp(-miles / 40)` |
 | soon | 0.07 | `exp(-days / 120)` |
 
-Those weights are the defaults. Once you've rated five or more shows, a logistic regression over the four signals (`learning.js`, regularized toward the defaults) replaces them with your own. Multiple dates for the same artist collapse into one card, and an MMR pass at the end adds some genre variety so the top of the list isn't all the same thing.
+Those are the default weights. Once you've rated five or more shows, a logistic regression over the four signals (`learning.js`), regularized toward the defaults, replaces them with weights fitted to you. Multiple dates for the same artist collapse into one card, and a final MMR pass mixes in some genre variety so the top of the list isn't all the same kind of show.
 
-The ranking math runs in the Go service (`ranker/`); the Node code has the same logic in-process as a fallback and that's what the unit tests exercise. The Python service (`trainer/`) does the weight fitting.
+The ranking math runs in the Go service in `ranker/`. The Node server has the same logic in-process as a fallback, and that's what the unit tests exercise. The Python service in `trainer/` does the weight fitting.
 
-## Backend notes
+## Making it fast
 
-- Ticketmaster allows 5 requests/second. Everything going to it passes through a token bucket with a concurrency gate, and a read-through cache that coalesces identical in-flight requests. The cache is in-memory by default, Redis if `REDIS_URL` is set.
-- Retries use exponential backoff with jitter and respect `Retry-After`.
-- Cold start was the slow part: the profile gets warmed in the background as soon as you log in, genre lookups are capped at 2.5s per request with the rest finishing afterwards, and event pages are fetched in parallel. Cold recommendations went from ~9s to ~2.5s.
-- Spotify login uses the authorization code flow with refresh token rotation handled in middleware.
-- Tests: `vitest` for the API (84), `go test` for the ranker, `pytest` for the trainer. CI runs all of them and builds the client.
+Ticketmaster allows 5 requests a second, so every call to it goes through a token bucket with a concurrency gate and a read-through cache that merges identical requests already in flight. The cache lives in memory by default, or in Redis if `REDIS_URL` is set. Retries back off exponentially with jitter and respect `Retry-After`.
 
-## Spotify's five-user limit
+The first recommendation after logging in used to take about 9 seconds. Now the taste profile starts building in the background as soon as you log in, genre lookups get 2.5 seconds per request and finish the rest afterward, and event pages are fetched in parallel. That brought it down to about 2.5 seconds.
 
-Since February 2026 a Development Mode app can only have five listed Spotify accounts, so a stranger can't log in unless the owner adds their email on the developer dashboard first. The dashboard has no public API, but its own front end logs in with the owner's session cookie and calls an internal JSON API, so `server/src/lib/spotifyAllowlist.js` does the same. Set `SPOTIFY_DASHBOARD_SP_DC` to the owner's `sp_dc` cookie (DevTools, Application, Cookies on developer.spotify.com) and the landing page asks visitors for the email on their Spotify account, adds it before sending them to login, and evicts the longest-listed entry when all five slots are taken. Without the variable the landing page shows the plain login button. The cookie lasts about a year; when it expires the form falls back to asking people to email the owner.
+Spotify login uses the authorization code flow, with refresh tokens rotated in middleware.
+
+## Getting around Spotify's five-user limit
+
+Since February 2026, a Spotify app in Development Mode can only have five listed users, so a stranger can't log in until the owner adds their email on the developer dashboard. That dashboard has no public API, but its own front end logs in with the owner's session cookie and calls an internal JSON API, so `server/src/lib/spotifyAllowlist.js` does the same thing.
+
+Set `SPOTIFY_DASHBOARD_SP_DC` to the owner's `sp_dc` cookie (from DevTools, under Application and then Cookies on developer.spotify.com). The landing page will then ask visitors for the email on their Spotify account, add it before sending them to log in, and remove whoever has been listed longest when all five slots are taken. Without the variable, the landing page just shows the plain login button. The cookie lasts about a year, and once it expires the form falls back to asking people to email the owner.
 
 ## Running it
 
-You need Node 20+, a [Spotify app](https://developer.spotify.com/dashboard) with `http://127.0.0.1:8088/auth/callback` as a redirect URI (Spotify won't accept `localhost`), and a [Ticketmaster API key](https://developer.ticketmaster.com).
+You need Node 20 or newer, a [Spotify app](https://developer.spotify.com/dashboard) with `http://127.0.0.1:8088/auth/callback` as a redirect URI (Spotify won't accept `localhost`), and a [Ticketmaster API key](https://developer.ticketmaster.com).
 
 ```bash
 cp server/.env.sample server/.env   # add your keys
@@ -57,30 +56,30 @@ cd server && npm install && npm run dev
 cd client && npm install && npm run dev
 ```
 
-Open http://127.0.0.1:5173. Use `127.0.0.1` rather than `localhost` or the session cookie won't match the Spotify callback host.
+Then open http://127.0.0.1:5173. Use `127.0.0.1` and not `localhost`, or the session cookie won't match the Spotify callback host.
 
-The Go and Python services are optional locally. To run them: `cd ranker && go run .` and `cd trainer && .venv/bin/python server.py`, then set `RANKER_ADDR=127.0.0.1:50051 TRAINER_ADDR=127.0.0.1:50052` for the API. Without them the Node process does everything itself.
+You don't need the Go and Python services locally, since the Node process does everything itself without them. To run them anyway, start `cd ranker && go run .` and `cd trainer && .venv/bin/python server.py`, then set `RANKER_ADDR=127.0.0.1:50051 TRAINER_ADDR=127.0.0.1:50052` for the API.
 
 ## Deploying
 
-The root `Dockerfile` builds the client, the Go binary and the Python env into one image that runs all three processes. `render.yaml` sets up a free Render web service plus Redis: create a Blueprint from the repo, fill in `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` and `TICKETMASTER_API_KEY`, and add `https://<service>.onrender.com/auth/callback` to the Spotify app. On other hosts set `PUBLIC_URL`.
+The root `Dockerfile` builds the client, the Go binary and the Python environment into one image that runs all three processes. `render.yaml` sets up a free Render web service with Redis. Create a Blueprint from the repo, fill in `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` and `TICKETMASTER_API_KEY`, and add `https://<service>.onrender.com/auth/callback` to the Spotify app. On any other host, set `PUBLIC_URL`.
 
 ## API
 
-Everything under `/api` needs the session cookie from `/auth/login`.
+Everything under `/api` needs the session cookie from `/auth/login`, except the demo and visit routes.
 
 | route | |
 |---|---|
 | `GET /api/me` | current user, saved location, unread alerts |
 | `GET /api/me/top-artists?time_range=` | top artists for a window |
 | `GET /api/me/taste` | genre profile and top artists per window |
-| `GET /api/recommendations?lat&lng&radius&from&to&weekend&maxPrice&genres&exclude` | ranked shows, "new to you" artists, score breakdowns. `radius=any` ignores location |
+| `GET /api/recommendations?lat&lng&radius&from&to&weekend&maxPrice&genres&exclude` | ranked shows, "new to you" artists and score breakdowns. `radius=any` ignores location |
 | `GET /api/concerts?lat&lng` | shows anywhere for your top artists |
-| `GET /api/demo/artists?q`, `GET /api/demo/recommendations?artists&lat&lng&radius` | login-free demo used by aryanh.dev. App-authenticated, rate limited, allowed from `DEMO_ORIGINS` |
-| `POST /api/visits/hit`, `GET /api/visits` | live visit log for aryanh.dev's private dashboard. Beacons from `DEMO_ORIGINS`, read with `Authorization: Bearer $VISITS_TOKEN`. Off unless `VISITS_TOKEN` is set. With `RESEND_API_KEY` and `NOTIFY_TO` it also emails a summary of each visit about 90 seconds after it ends |
+| `GET /api/demo/artists?q`, `GET /api/demo/recommendations?artists&lat&lng&radius` | the login-free demo on aryanh.dev. Uses the app's own Spotify token, is rate limited, and only accepts requests from `DEMO_ORIGINS` |
+| `POST /api/visits/hit`, `GET /api/visits` | the live visit log behind aryanh.dev's private dashboard. Takes page beacons from `DEMO_ORIGINS` and is read with `Authorization: Bearer $VISITS_TOKEN`. Off unless `VISITS_TOKEN` is set. With `RESEND_API_KEY` and `NOTIFY_TO` it also emails a summary of each visit about 90 seconds after it ends |
 | `GET/PUT/DELETE /api/watchlist[/:artistId]` | saved artists |
 | `GET /api/alerts`, `POST /api/alerts/read`, `POST /api/alerts/refresh` | alerts inbox |
-| `GET/POST /api/feedback` | thumbs up/down |
+| `GET/POST /api/feedback` | thumbs up and down |
 | `POST /api/plans`, `GET /api/plans/:code`, `GET /api/plans/:code/recommendations` | group plans |
 | `GET /api/events/:id/calendar.ics` | calendar file for a show |
 | `GET /metrics` | Prometheus |
@@ -92,3 +91,5 @@ cd server && npm test
 cd ranker && go test ./...
 cd trainer && .venv/bin/pytest
 ```
+
+The API has its tests in `vitest`, the ranker in `go test` and the trainer in `pytest`. CI runs all three and builds the client.
