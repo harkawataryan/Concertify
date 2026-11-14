@@ -48,7 +48,10 @@ describe('visit accuracy', () => {
     // A late, lower count never shrinks the time.
     const v3 = await hit({ k: 'ping', p: 'ping', e: true, v: VID, s: 40 });
     expect(v3.active).toBe(58);
-    expect(summarize(v3).text).toContain('Reached:   scrolled to herd, stayed 58s');
+    expect(summarize(v3).text).toContain('Reached:   scrolled to herd, stayed at least 58s');
+    const v4 = await hit({ k: 'ping', p: 'ping', e: true, v: VID, s: 61, d: 'herd', f: true });
+    expect(v4.final).toBe(true);
+    expect(summarize(v4).text).toContain('Reached:   scrolled to herd, stayed 1m 1s');
   });
 
   it('flags data center visits that never interact, and keeps them out of email', async () => {
@@ -62,7 +65,7 @@ describe('visit accuracy', () => {
     const sent = [];
     const n = createNotifier({ store, apiKey: 'k', to: 'x', now, fetchImpl: async (_u, o) => { sent.push(JSON.parse(o.body)); return { ok: true, text: async () => '' }; }, log: { warn() {} } });
     expect(await n.sweep()).toBe(1);
-    expect(sent[0].text).toContain('stayed 12s');
+    expect(sent[0].text).toContain('stayed at least 12s');
   });
 
   it('tells phones, tablets and desktops apart from the user agent', () => {
@@ -82,5 +85,16 @@ describe('visit accuracy', () => {
     expect(await lookupGeo('203.0.113.9', { fetchImpl: ipwho })).toEqual({ loc: 'US-VA', dc: true });
     const home = async () => ok({ status: 'success', countryCode: 'US', region: 'TX', hosting: false, org: 'Spectrum', isp: 'Charter Communications' });
     expect(await lookupGeo('203.0.113.9', { fetchImpl: home })).toEqual({ loc: 'US-TX', dc: false });
+  });
+
+  it('says how short a visit was when no check-in arrived', async () => {
+    const { hit } = setup();
+    const v2 = await hit({ p: '/', v: 'newcodevisitor00000001', cv: 2 });
+    expect(v2.cv).toBe(2);
+    expect(summarize(v2).text).toContain('Reached:   left within about 3 seconds');
+    const v1 = await hit({ p: '/', v: 'oldcodevisitor00000001' }, { ip: '198.51.100.20' });
+    expect(summarize(v1).text).toContain('Reached:   left within about 10 seconds');
+    const v0 = await hit({ p: '/' }, { ip: '198.51.100.21' });
+    expect(summarize(v0).text).toContain('no scroll data');
   });
 });

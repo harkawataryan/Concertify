@@ -51,9 +51,18 @@ function reached(v, section) {
   // to the closing summary, which is sent the moment the visitor leaves.
   const first = v.hits.find((h) => !h.e);
   const left = [...v.hits].reverse().find((h) => h.e && h.p.startsWith('visit/'));
+  // A check-in time is the whole visit only when it was the final one or the
+  // summary also arrived; otherwise it's a minimum.
+  const whole = v.final || !!left;
   const exact = v.active || (first && left ? Math.max(0, Math.round((Date.parse(left.t) - Date.parse(first.t)) / 1000)) : null);
-  const stay = exact != null ? duration(exact) : section?.stay;
-  if (!where && !stay) return 'no scroll data (left before it was sent, or blocked)';
+  const stay = exact != null ? (v.active && !whole ? `at least ${duration(exact)}` : duration(exact)) : section?.stay;
+  if (!where && !stay) {
+    // Newer pages check in at 3 seconds (the first version, which set a visitor id, at 10),
+    // so no check-in at all means they left before it.
+    if (v.cv >= 2) return 'left within about 3 seconds';
+    if (v.visitor) return 'left within about 10 seconds';
+    return 'no scroll data (left before it was sent, or blocked)';
+  }
   return [where && `scrolled to ${where}`, stay && `stayed ${stay}`].filter(Boolean).join(', ');
 }
 

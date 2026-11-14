@@ -277,6 +277,10 @@ export async function recordHit({ store, hit, ip, ua, secret, geo = lookupGeo, n
   if (activeS) v.active = Math.max(v.active || 0, activeS);
   if (typeof hit.d === 'string' && SECTION.test(hit.d)) v.deepest = hit.d;
   if (hit.i === true) v.human = true;
+  // The check-in sent on the way out says so; any later one (they came back) clears it.
+  if (ping) v.final = hit.f === true;
+  // Version of the page's tracking code: 2 and up send a check-in at 3 seconds.
+  if (Number.isInteger(+hit.cv) && +hit.cv > 0 && +hit.cv < 100) v.cv = +hit.cv;
   await store.putVisit(v);
 
   // Email once the visit looks finished: shortly after the closing summary,
